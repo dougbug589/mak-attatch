@@ -397,7 +397,6 @@ class MainWindow(QMainWindow):
         if ApiKeyDialog(self).exec() == QDialog.DialogCode.Accepted:
             self.status_label.setText("Settings saved")
 
-    @staticmethod
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
