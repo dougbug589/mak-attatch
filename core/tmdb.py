@@ -23,8 +23,20 @@ def _get_session() -> requests.Session:
         _session = requests.Session()
         _session.max_redirects = MAX_REDIRECTS
         _session.headers["User-Agent"] = "poster-attacher/1.0"
-        _session.headers["Authorization"] = f"Bearer {config.get('tmdb_api_key')}"
     return _session
+
+
+def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Response:
+    _validate_url(url)
+    session = _get_session()
+    headers = {}
+    if urlparse(url).hostname == "api.themoviedb.org":
+        headers["Authorization"] = f"Bearer {config.get('tmdb_api_key')}"
+    resp = session.get(url, params=params, stream=stream, timeout=TIMEOUT,
+                        allow_redirects=True, headers=headers)
+    _validate_url(resp.url)
+    resp.raise_for_status()
+    return resp
 
 
 def _validate_url(url: str):
@@ -33,15 +45,6 @@ def _validate_url(url: str):
         raise TMDBError(f"Blocked non-HTTPS URL")
     if parsed.hostname not in ALLOWED_HOSTS:
         raise TMDBError(f"Blocked URL from untrusted host")
-
-
-def _fetch(url: str, stream: bool = False) -> requests.Response:
-    _validate_url(url)
-    session = _get_session()
-    resp = session.get(url, stream=stream, timeout=TIMEOUT, allow_redirects=True)
-    _validate_url(resp.url)
-    resp.raise_for_status()
-    return resp
 
 
 def search(query: str, media_type: str = "multi") -> list[dict]:
