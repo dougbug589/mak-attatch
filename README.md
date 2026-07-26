@@ -81,7 +81,15 @@ cd poster-attacher
 6. Click a poster to preview it full-size, then select it
 7. Hit **Attach Poster** and you're done
 
-You can also drag and drop a video file directly onto the app window.
+You can also drag and drop video files directly onto the app window.
+
+### Batch mode
+
+Select multiple files at once using **Browse Multiple**, or drop several files at once. Pick a poster and attach it to all of them in one go.
+
+### Local images
+
+Don't want to search TMDB? Click **Use Local Image** to pick any image file from your computer.
 
 ## Features
 
@@ -89,7 +97,9 @@ You can also drag and drop a video file directly onto the app window.
 - Auto-detects title from video filenames
 - Browse, preview, and pick from all available poster versions
 - Drag and drop support
-- Converts non-MKV videos and non-JPG images automatically
+- Batch attach/remove for multiple files
+- Use your own local images as posters
+- Works with MKV, MP4, MOV, AVI, and more — keeps original format when possible
 - Follows your system theme (works nicely on KDE, GNOME, etc.)
 
 ## License

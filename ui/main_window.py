@@ -93,6 +93,28 @@ class PosterWorker(QThread):
             self.error.emit(str(e))
 
 
+class BatchWorker(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
+
+    def __init__(self, video_paths: list, poster_path: str):
+        super().__init__()
+        self.video_paths = video_paths
+        self.poster_path = poster_path
+
+    def run(self):
+        results = []
+        total = len(self.video_paths)
+        for i, path in enumerate(self.video_paths):
+            self.progress.emit(i + 1, total, Path(path).name)
+            try:
+                out = attacher.full_attach(path, self.poster_path)
+                results.append({"path": path, "out": out, "ok": True})
+            except Exception as e:
+                results.append({"path": path, "out": str(e), "ok": False})
+        self.finished.emit(results)
+
+
 class PosterPreviewDialog(QDialog):
     poster_selected = pyqtSignal(dict)
 
@@ -158,6 +180,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
 
         self.video_path = ""
+        self.video_paths = []
         self.current_posters = []
         self.selected_poster = None
         self.local_poster_path = None
@@ -192,9 +215,18 @@ class MainWindow(QMainWindow):
         self.file_btn.clicked.connect(self._browse_video)
         row1.addWidget(self.file_btn)
 
+        self.multi_btn = QPushButton("Browse Multiple")
+        self.multi_btn.clicked.connect(self._browse_multi)
+        row1.addWidget(self.multi_btn)
+
         self.file_label = QLabel("No file selected")
         row1.addWidget(self.file_label, 1)
         lay.addLayout(row1)
+
+        self.file_list = QListWidget()
+        self.file_list.setMaximumHeight(80)
+        self.file_list.hide()
+        lay.addWidget(self.file_list)
 
         row2 = QHBoxLayout()
 
@@ -285,6 +317,16 @@ class MainWindow(QMainWindow):
         if path:
             self._load_video(path)
 
+    def _browse_multi(self):
+        last_dir = config.get("last_dir") or str(Path.home())
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Videos",
+            last_dir,
+            "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
+        )
+        if paths:
+            self._load_videos(paths)
+
     def _search(self):
         query = self.search_input.text().strip()
         if not query:
@@ -360,7 +402,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Local image: {Path(path).name}")
 
     def _attach(self):
-        if not self.video_path:
+        if not self.video_paths:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
         if not self.selected_poster and not self.local_poster_path:
@@ -370,7 +412,7 @@ class MainWindow(QMainWindow):
         self.progress.show()
         self.progress.setRange(0, 0)
         self.attach_btn.setEnabled(False)
-        self.status_label.setText("Attaching poster...")
+        self.status_label.setText("Preparing poster...")
 
         poster_path = None
         try:
@@ -382,42 +424,100 @@ class MainWindow(QMainWindow):
                 os.chmod(poster_path, 0o600)
                 tmdb.download_image(self.selected_poster["url"], poster_path)
 
-            out = attacher.full_attach(self.video_path, poster_path)
-
-            if out != self.video_path:
-                self.video_path = out
-                self.file_label.setText(out)
-
-            self.status_label.setText("Poster attached successfully!")
-            QMessageBox.information(self, "Done", "Poster attached successfully!")
+            if len(self.video_paths) == 1:
+                out = attacher.full_attach(self.video_paths[0], poster_path)
+                if out != self.video_paths[0]:
+                    self.video_path = out
+                    self.video_paths = [out]
+                    self.file_label.setText(out)
+                self.status_label.setText("Poster attached successfully!")
+                QMessageBox.information(self, "Done", "Poster attached successfully!")
+            else:
+                self._batch_attach(poster_path)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
         finally:
             if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
                 os.unlink(poster_path)
-            self.progress.hide()
-            self.attach_btn.setEnabled(True)
+            if len(self.video_paths) <= 1:
+                self.progress.hide()
+                self.attach_btn.setEnabled(True)
+
+    def _batch_attach(self, poster_path):
+        self.progress.setRange(0, len(self.video_paths))
+        self.progress.setValue(0)
+        self.status_label.setText(f"Attaching to 1/{len(self.video_paths)}...")
+
+        self._batch_worker = BatchWorker(self.video_paths, poster_path)
+        self._batch_worker.progress.connect(self._on_batch_progress)
+        self._batch_worker.finished.connect(self._on_batch_done)
+        self._batch_worker.start()
+
+    def _on_batch_progress(self, current, total, filename):
+        self.progress.setValue(current)
+        self.status_label.setText(f"Attaching {current}/{total}: {filename}")
+
+    def _on_batch_done(self, results):
+        self.progress.hide()
+        self.attach_btn.setEnabled(True)
+        ok = sum(1 for r in results if r["ok"])
+        fail = len(results) - ok
+        if fail:
+            QMessageBox.warning(self, "Batch Complete",
+                                f"Attached to {ok} files.\n{fail} failed.")
+        else:
+            QMessageBox.information(self, "Done",
+                                    f"Poster attached to all {ok} files!")
+        self.status_label.setText(f"Batch: {ok} succeeded, {fail} failed")
 
     def _remove(self):
-        if not self.video_path:
+        if not self.video_paths:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
 
+        count = len(self.video_paths)
+        msg = f"Remove poster from this video?" if count == 1 else f"Remove poster from {count} files?"
         reply = QMessageBox.question(
-            self, "Confirm", "Remove poster from this video?",
+            self, "Confirm", msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        try:
-            attacher.remove_poster(self.video_path)
-            self.status_label.setText("Poster removed")
-            QMessageBox.information(self, "Done", "Poster removed!")
-        except Exception as e:
-            self.status_label.setText(f"Error removing poster")
-            QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
+        if count == 1:
+            try:
+                attacher.remove_poster(self.video_paths[0])
+                self.status_label.setText("Poster removed")
+                QMessageBox.information(self, "Done", "Poster removed!")
+            except Exception as e:
+                self.status_label.setText("Error removing poster")
+                QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
+        else:
+            self._batch_remove()
+
+    def _batch_remove(self):
+        self.progress.show()
+        self.progress.setRange(0, len(self.video_paths))
+        self.progress.setValue(0)
+        self.attach_btn.setEnabled(False)
+        ok = 0
+        fail = 0
+        for i, path in enumerate(self.video_paths):
+            self.progress.setValue(i + 1)
+            self.status_label.setText(f"Removing {i + 1}/{len(self.video_paths)}: {Path(path).name}")
+            try:
+                attacher.remove_poster(path)
+                ok += 1
+            except Exception:
+                fail += 1
+        self.progress.hide()
+        self.attach_btn.setEnabled(True)
+        if fail:
+            QMessageBox.warning(self, "Done", f"Removed from {ok} files.\n{fail} failed.")
+        else:
+            QMessageBox.information(self, "Done", f"Poster removed from all {ok} files!")
+        self.status_label.setText(f"Remove: {ok} succeeded, {fail} failed")
 
     def _open_settings(self):
         if ApiKeyDialog(self).exec() == QDialog.DialogCode.Accepted:
@@ -431,16 +531,35 @@ class MainWindow(QMainWindow):
                     return
 
     def dropEvent(self, event: QDropEvent):
-        for url in event.mimeData().urls():
-            path = url.toLocalFile()
-            if parser.is_video(path):
-                self._load_video(path)
-                return
+        videos = [url.toLocalFile() for url in event.mimeData().urls()
+                  if parser.is_video(url.toLocalFile())]
+        if not videos:
+            return
+        if len(videos) == 1:
+            self._load_video(videos[0])
+        else:
+            self._load_videos(videos)
 
     def _load_video(self, path):
         self.video_path = path
+        self.video_paths = [path]
         self.file_label.setText(path)
+        self.file_list.hide()
+        self.file_list.clear()
         config.set("last_dir", str(Path(path).parent))
         parsed = parser.parse_filename(path)
+        self.search_input.setText(parser.build_search_query(parsed))
+        self._search()
+
+    def _load_videos(self, paths):
+        self.video_path = paths[0]
+        self.video_paths = paths
+        self.file_label.setText(f"{len(paths)} files selected")
+        self.file_list.clear()
+        for p in paths:
+            self.file_list.addItem(Path(p).name)
+        self.file_list.show()
+        config.set("last_dir", str(Path(paths[0]).parent))
+        parsed = parser.parse_filename(paths[0])
         self.search_input.setText(parser.build_search_query(parsed))
         self._search()
