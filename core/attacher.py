@@ -114,8 +114,25 @@ def remove_poster(video_path: str):
             stderr = result.stderr.decode(errors='ignore').lower()
             if stderr and "not found" not in stderr and "no such" not in stderr:
                 raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
+    elif ext in MP4_COMPAT_EXTS:
+        tmp = video_path + ".tmp.rm"
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", video_path,
+                    "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?",
+                    "-map_metadata", "0",
+                    "-c", "copy", tmp,
+                ],
+                check=True, capture_output=True, timeout=60,
+            )
+            os.replace(tmp, video_path)
+        except subprocess.CalledProcessError:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise RuntimeError("Failed to remove poster from MP4")
     else:
-        raise RuntimeError("Remove poster is only supported for MKV files")
+        raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 
 
 def full_attach(video_path: str, poster_path: str) -> str:
