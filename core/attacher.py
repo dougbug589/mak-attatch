@@ -85,8 +85,10 @@ def remove_poster(video_path: str):
         ["mkvpropedit", video_path, "--delete-attachment", "name:cover.jpg"],
         capture_output=True,
     )
-    if result.returncode != 0 and b"not found" not in result.stderr.lower():
-        raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors='ignore').lower()
+        if stderr and "not found" not in stderr and "no such" not in stderr:
+            raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
 
 
 def full_attach(video_path: str, poster_path: str) -> str:

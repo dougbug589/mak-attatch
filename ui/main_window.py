@@ -365,8 +365,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Poster attached successfully!")
             QMessageBox.information(self, "Done", "Poster attached successfully!")
         except Exception as e:
-            self.status_label.setText(f"Error occurred")
-            QMessageBox.critical(self, "Error", "An error occurred during attachment")
+            self.status_label.setText(f"Error: {e}")
+            QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
         finally:
             if poster_path and os.path.exists(poster_path):
                 os.unlink(poster_path)
