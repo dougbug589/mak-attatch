@@ -114,6 +114,16 @@ def _find_attached_pic(video_path: str) -> int | None:
         streams = json.loads(result.stdout).get("streams", [])
     except json.JSONDecodeError:
         return None
+    IMAGE_CODECS = {"mjpeg", "png", "bmp", "gif", "webp", "tiff"}
+    video_count = 0
+    for s in streams:
+        if s.get("codec_type") == "video":
+            video_count += 1
+    if video_count < 2:
+        return None
+    for s in streams:
+        if s.get("codec_type") == "video" and s.get("codec_name") in IMAGE_CODECS:
+            return s["index"]
     for s in streams:
         tags = {k.lower(): v for k, v in s.get("tags", {}).items()}
         disp = s.get("disposition", {})
