@@ -26,12 +26,22 @@ def _get_session() -> requests.Session:
     return _session
 
 
+def _is_v4_token(key: str) -> bool:
+    return len(key) > 50
+
+
 def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Response:
     _validate_url(url)
     session = _get_session()
     headers = {}
     if urlparse(url).hostname == "api.themoviedb.org":
-        headers["Authorization"] = f"Bearer {config.get('tmdb_api_key')}"
+        api_key = config.get("tmdb_api_key")
+        if _is_v4_token(api_key):
+            headers["Authorization"] = f"Bearer {api_key}"
+        else:
+            if params is None:
+                params = {}
+            params["api_key"] = api_key
     resp = session.get(url, params=params, stream=stream, timeout=TIMEOUT,
                         allow_redirects=True, headers=headers)
     _validate_url(resp.url)
