@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+buildenv/
+pkg/
+src/
+*.tar.*
+*.pkg.tar.*
+*.o
+*.so

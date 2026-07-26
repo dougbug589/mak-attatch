@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from PyQt6.QtWidgets import QApplication
+
+from core import attacher
+from ui.main_window import MainWindow
+
+
+def main():
+    missing = attacher.check_tools()
+    if missing:
+        print(f"Missing required tools: {', '.join(missing)}")
+        print("Install them with your package manager")
+        sys.exit(1)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("Poster Attacher")
+    app.setOrganizationName("poster-attacher")
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
