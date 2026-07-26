@@ -415,9 +415,9 @@ class MainWindow(QMainWindow):
             attacher.remove_poster(self.video_path)
             self.status_label.setText("Poster removed")
             QMessageBox.information(self, "Done", "Poster removed!")
-        except Exception:
-            self.status_label.setText("Error removing poster")
-            QMessageBox.critical(self, "Error", "Failed to remove poster")
+        except Exception as e:
+            self.status_label.setText(f"Error removing poster")
+            QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
 
     def _open_settings(self):
         if ApiKeyDialog(self).exec() == QDialog.DialogCode.Accepted:

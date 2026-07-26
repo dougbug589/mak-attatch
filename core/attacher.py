@@ -36,11 +36,28 @@ def _secure_temp(suffix: str) -> str:
 
 VIDEO_EXTS = {".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v", ".mpeg", ".mpg"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tiff"}
+MKV_COMPAT_EXTS = {".mkv"}
+MP4_COMPAT_EXTS = {".mp4", ".mov"}
+
+MIME_MAP = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".bmp": "image/bmp",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".tiff": "image/tiff",
+}
+
+
+def _get_mime(image_path: str) -> str:
+    ext = Path(image_path).suffix.lower()
+    return MIME_MAP.get(ext, "image/jpeg")
 
 
 def to_mkv(video_path: str) -> str:
     p = _validate_path(video_path, VIDEO_EXTS)
-    if p.suffix.lower() == ".mkv":
+    if p.suffix.lower() in MKV_COMPAT_EXTS:
         return video_path
 
     out = str(p.with_suffix(".mkv"))
@@ -51,48 +68,68 @@ def to_mkv(video_path: str) -> str:
     return out
 
 
-def to_jpg(image_path: str) -> str:
-    p = _validate_path(image_path, IMAGE_EXTS)
-    if p.suffix.lower() in (".jpg", ".jpeg"):
-        return image_path
-
-    out = str(p.with_suffix(".jpg"))
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(p), out],
-        check=True, capture_output=True, timeout=60,
-    )
-    return out
-
-
-def attach_poster(video_path: str, poster_path: str):
+def attach_poster_mkv(video_path: str, poster_path: str):
     _validate_path(video_path, VIDEO_EXTS)
     _validate_path(poster_path, IMAGE_EXTS)
     remove_poster(video_path)
+    mime = _get_mime(poster_path)
     subprocess.run(
         [
             "mkvpropedit", video_path,
-            "--attachment-mime-type", "image/jpeg",
-            "--attachment-name", "cover.jpg",
+            "--attachment-mime-type", mime,
+            "--attachment-name", Path(poster_path).name,
             "--add-attachment", poster_path,
         ],
         check=True, capture_output=True, timeout=60,
     )
 
 
+def attach_poster_mp4(video_path: str, poster_path: str):
+    _validate_path(video_path, VIDEO_EXTS)
+    _validate_path(poster_path, IMAGE_EXTS)
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", poster_path,
+            "-map", "0", "-map", "1",
+            "-c", "copy",
+            "-disposition:v:1", "attached_pic",
+            video_path + ".tmp.mp4",
+        ],
+        check=True, capture_output=True, timeout=60,
+    )
+    os.replace(video_path + ".tmp.mp4", video_path)
+
+
 def remove_poster(video_path: str):
     _validate_path(video_path, VIDEO_EXTS)
-    result = subprocess.run(
-        ["mkvpropedit", video_path, "--delete-attachment", "name:cover.jpg"],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.decode(errors='ignore').lower()
-        if stderr and "not found" not in stderr and "no such" not in stderr:
-            raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
+    ext = Path(video_path).suffix.lower()
+    if ext in MKV_COMPAT_EXTS:
+        result = subprocess.run(
+            ["mkvpropedit", video_path, "--delete-attachment", "name:cover.jpg"],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors='ignore').lower()
+            if stderr and "not found" not in stderr and "no such" not in stderr:
+                raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
+    else:
+        raise RuntimeError("Remove poster is only supported for MKV files")
 
 
 def full_attach(video_path: str, poster_path: str) -> str:
+    p = Path(video_path)
+    ext = p.suffix.lower()
+
+    if ext in MKV_COMPAT_EXTS:
+        attach_poster_mkv(video_path, poster_path)
+        return video_path
+
+    if ext in MP4_COMPAT_EXTS:
+        attach_poster_mp4(video_path, poster_path)
+        return video_path
+
     mkv = to_mkv(video_path)
-    jpg = to_jpg(poster_path)
-    attach_poster(mkv, jpg)
+    attach_poster_mkv(mkv, poster_path)
     return mkv
