@@ -2,7 +2,7 @@
 Name=Poster Attacher
 Comment=Attach cover art to video files
 Exec=poster-attacher
-Icon=video-x-generic
+Icon=/usr/lib/poster-attacher/P.png
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;

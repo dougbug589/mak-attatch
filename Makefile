@@ -13,8 +13,7 @@ install:
 	mkdir -p $(DESTDIR)$(PREFIX)/lib/$(APP)
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	mkdir -p $(DESTDIR)$(PREFIX)/share/applications
-	mkdir -p $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps
-	cp -r core ui config.py main.py requirements.txt $(DESTDIR)$(PREFIX)/lib/$(APP)/
+	cp -r core ui config.py main.py requirements.txt P.png $(DESTDIR)$(PREFIX)/lib/$(APP)/
 	cp -r .venv $(DESTDIR)$(PREFIX)/lib/$(APP)/
 	echo '#!/bin/sh' > $(DESTDIR)$(PREFIX)/bin/$(APP)
 	echo 'exec $(PREFIX)/lib/$(APP)/.venv/bin/python $(PREFIX)/lib/$(APP)/main.py "$$@"' >> $(DESTDIR)$(PREFIX)/bin/$(APP)

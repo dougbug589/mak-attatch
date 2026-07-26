@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
@@ -153,6 +153,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Poster Attacher")
         self.setMinimumSize(900, 700)
+        icon_path = Path(__file__).resolve().parent.parent / "P.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.setStyleSheet(self._styles())
 
         self.video_path = ""
