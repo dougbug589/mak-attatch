@@ -42,7 +42,7 @@ def get(key: str):
 def set(key: str, value):
     if key == "tmdb_api_key" and value:
         value = str(value).strip()
-        if len(value) < 10 or len(value) > 50:
+        if len(value) < 10 or len(value) > 500:
             raise ValueError("Invalid API key format")
     config = load()
     config[key] = value

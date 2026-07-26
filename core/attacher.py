@@ -9,7 +9,7 @@ def check_tools():
     missing = []
     if not shutil.which("ffmpeg"):
         missing.append("ffmpeg")
-    if not shutil.which("mkvtoolnix (mkvpropedit)"):
+    if not shutil.which("mkvpropedit"):
         missing.append("mkvtoolnix (mkvpropedit)")
     return missing
 

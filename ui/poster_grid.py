@@ -17,9 +17,7 @@ class ImageLoader(QThread):
 
     def run(self):
         try:
-            import requests
-            resp = requests.get(self.url, timeout=15)
-            resp.raise_for_status()
+            resp = tmdb._fetch(self.url)
             pixmap = QPixmap()
             pixmap.loadFromData(resp.content)
             self.loaded.emit(self.index, pixmap)

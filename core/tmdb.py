@@ -23,16 +23,25 @@ def _get_session() -> requests.Session:
         _session = requests.Session()
         _session.max_redirects = MAX_REDIRECTS
         _session.headers["User-Agent"] = "poster-attacher/1.0"
-    _session.params["api_key"] = config.get("tmdb_api_key")
+        _session.headers["Authorization"] = f"Bearer {config.get('tmdb_api_key')}"
     return _session
 
 
 def _validate_url(url: str):
     parsed = urlparse(url)
     if parsed.scheme != "https":
-        raise TMDBError(f"Blocked non-HTTPS URL: {url}")
+        raise TMDBError(f"Blocked non-HTTPS URL")
     if parsed.hostname not in ALLOWED_HOSTS:
-        raise TMDBError(f"Blocked URL from untrusted host: {parsed.hostname}")
+        raise TMDBError(f"Blocked URL from untrusted host")
+
+
+def _fetch(url: str, stream: bool = False) -> requests.Response:
+    _validate_url(url)
+    session = _get_session()
+    resp = session.get(url, stream=stream, timeout=TIMEOUT, allow_redirects=True)
+    _validate_url(resp.url)
+    resp.raise_for_status()
+    return resp
 
 
 def search(query: str, media_type: str = "multi") -> list[dict]:
@@ -53,12 +62,10 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
     if not query:
         raise TMDBError("Empty search query")
 
-    session = _get_session()
     params = {"query": query}
     if year:
         params["year"] = year
-    resp = session.get(f"{BASE_URL}/search/{media_type}", params=params, timeout=TIMEOUT)
-    resp.raise_for_status()
+    resp = _fetch(f"{BASE_URL}/search/{media_type}", params=params)
     results = resp.json().get("results", [])
 
     filtered = []
@@ -83,9 +90,7 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
     if media_type not in ("movie", "tv"):
         raise TMDBError("Invalid media type")
 
-    session = _get_session()
-    resp = session.get(f"{BASE_URL}/{media_type}/{media_id}/images", timeout=TIMEOUT)
-    resp.raise_for_status()
+    resp = _fetch(f"{BASE_URL}/{media_type}/{media_id}/images")
 
     posters = []
     for p in resp.json().get("posters", []):
@@ -111,12 +116,11 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
 
 def download_image(url: str, dest: str):
     _validate_url(url)
-    resp = requests.get(url, stream=True, timeout=TIMEOUT, verify=True)
-    resp.raise_for_status()
+    resp = _fetch(url, stream=True)
 
     content_length = int(resp.headers.get("content-length", 0))
     if content_length > MAX_IMAGE_SIZE:
-        raise TMDBError(f"Image too large: {content_length} bytes")
+        raise TMDBError(f"Image too large")
 
     downloaded = 0
     with open(dest, "wb") as f:

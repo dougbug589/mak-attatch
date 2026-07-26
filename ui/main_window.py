@@ -33,6 +33,7 @@ class ApiKeyDialog(QDialog):
 
         self.key_input = QLineEdit()
         self.key_input.setPlaceholderText("Paste API key here...")
+        self.key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_input.setReadOnly(False)
         self.key_input.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         existing = config.get("tmdb_api_key")
@@ -139,9 +140,7 @@ class PosterPreviewDialog(QDialog):
 
         def run(self):
             try:
-                import requests
-                resp = requests.get(self.url, timeout=30)
-                resp.raise_for_status()
+                resp = tmdb._fetch(self.url)
                 pixmap = QPixmap()
                 pixmap.loadFromData(resp.content)
                 self.loaded.emit(pixmap)
