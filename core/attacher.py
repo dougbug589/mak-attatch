@@ -138,7 +138,7 @@ def remove_poster(video_path: str):
         pic_idx = _find_attached_pic(video_path)
         if pic_idx is None:
             return
-        tmp = video_path + ".tmp.rm"
+        tmp = str(Path(video_path).with_suffix(".poster_rm_tmp.mp4"))
         try:
             result = subprocess.run(
                 [
