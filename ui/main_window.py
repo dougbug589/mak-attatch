@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Poster Attacher")
         self.setMinimumSize(900, 700)
-        icon_path = Path(__file__).resolve().parent.parent / "P.png"
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "P.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 

@@ -22,7 +22,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Poster Attacher")
     app.setOrganizationName("poster-attacher")
-    icon_path = Path(__file__).resolve().parent / "P.png"
+    icon_path = Path(__file__).resolve().parent / "assets" / "P.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()

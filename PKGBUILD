@@ -21,7 +21,7 @@ build() {
 package() {
     cd "$startdir"
     install -Ddm755 "$pkgdir/usr/lib/$pkgname"
-    cp -r core ui config.py main.py requirements.txt P.png "$pkgdir/usr/lib/$pkgname/"
+	cp -r core ui config.py main.py requirements.txt assets "$pkgdir/usr/lib/$pkgname/"
     cp -r buildenv "$pkgdir/usr/lib/$pkgname/.venv"
 
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<EOF
