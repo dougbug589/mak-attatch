@@ -102,6 +102,26 @@ def attach_poster_mp4(video_path: str, poster_path: str):
     os.replace(video_path + ".tmp.mp4", video_path)
 
 
+def _find_attached_pic(video_path: str) -> int | None:
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", video_path],
+        capture_output=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return None
+    import json
+    try:
+        streams = json.loads(result.stdout).get("streams", [])
+    except json.JSONDecodeError:
+        return None
+    for s in streams:
+        tags = {k.lower(): v for k, v in s.get("tags", {}).items()}
+        disp = s.get("disposition", {})
+        if "attached_pic" in tags or disp.get("attached_pic"):
+            return s["index"]
+    return None
+
+
 def remove_poster(video_path: str):
     _validate_path(video_path, VIDEO_EXTS)
     ext = Path(video_path).suffix.lower()
@@ -115,24 +135,23 @@ def remove_poster(video_path: str):
             if stderr and "not found" not in stderr and "no such" not in stderr:
                 raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
     elif ext in MP4_COMPAT_EXTS:
+        pic_idx = _find_attached_pic(video_path)
+        if pic_idx is None:
+            return
         tmp = video_path + ".tmp.rm"
         try:
             result = subprocess.run(
                 [
                     "ffmpeg", "-y", "-i", video_path,
-                    "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-map", "0:d?",
+                    "-map", "0", f"-map", f"-0:{pic_idx}",
                     "-map_metadata", "0",
                     "-c", "copy", tmp,
                 ],
                 capture_output=True, timeout=60,
             )
             if result.returncode != 0:
-                raise RuntimeError(result.stderr.decode(errors='ignore')[-200:])
+                raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
             os.replace(tmp, video_path)
-        except subprocess.CalledProcessError as e:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise RuntimeError(f"ffmpeg failed: {e.stderr.decode(errors='ignore')[-200:]}") from e
         except Exception:
             if os.path.exists(tmp):
                 os.unlink(tmp)
