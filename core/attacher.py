@@ -117,20 +117,26 @@ def remove_poster(video_path: str):
     elif ext in MP4_COMPAT_EXTS:
         tmp = video_path + ".tmp.rm"
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [
                     "ffmpeg", "-y", "-i", video_path,
-                    "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?",
+                    "-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-map", "0:d?",
                     "-map_metadata", "0",
                     "-c", "copy", tmp,
                 ],
-                check=True, capture_output=True, timeout=60,
+                capture_output=True, timeout=60,
             )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.decode(errors='ignore')[-200:])
             os.replace(tmp, video_path)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-            raise RuntimeError("Failed to remove poster from MP4")
+            raise RuntimeError(f"ffmpeg failed: {e.stderr.decode(errors='ignore')[-200:]}") from e
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
     else:
         raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 
