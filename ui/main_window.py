@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
         self.video_path = ""
         self.current_posters = []
         self.selected_poster = None
+        self.local_poster_path = None
 
         self.setAcceptDrops(True)
 
@@ -239,6 +240,14 @@ class MainWindow(QMainWindow):
         self.poster_grid = PosterGrid()
         self.poster_grid.poster_selected.connect(self._on_poster_clicked)
         lay.addWidget(self.poster_grid)
+
+        img_row = QHBoxLayout()
+        self.local_img_btn = QPushButton("Use Local Image")
+        self.local_img_btn.clicked.connect(self._browse_image)
+        img_row.addWidget(self.local_img_btn)
+        self.local_img_label = QLabel("")
+        img_row.addWidget(self.local_img_label, 1)
+        lay.addLayout(img_row)
 
         return w
 
@@ -333,14 +342,28 @@ class MainWindow(QMainWindow):
 
     def _on_poster_selected(self, poster: dict):
         self.selected_poster = poster
+        self.local_poster_path = None
+        self.local_img_label.setText("")
         self.attach_btn.setEnabled(True)
         self.status_label.setText(f"Selected poster: {poster['width']}x{poster['height']}")
+
+    def _browse_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Image", "",
+            "Images (*.jpg *.jpeg *.png *.bmp *.webp *.gif *.tiff);;All Files (*)"
+        )
+        if path:
+            self.local_poster_path = path
+            self.selected_poster = None
+            self.attach_btn.setEnabled(True)
+            self.local_img_label.setText(Path(path).name)
+            self.status_label.setText(f"Local image: {Path(path).name}")
 
     def _attach(self):
         if not self.video_path:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
-        if not self.selected_poster:
+        if not self.selected_poster and not self.local_poster_path:
             QMessageBox.warning(self, "Error", "No poster selected")
             return
 
@@ -351,10 +374,13 @@ class MainWindow(QMainWindow):
 
         poster_path = None
         try:
-            fd, poster_path = tempfile.mkstemp(suffix=".jpg")
-            os.close(fd)
-            os.chmod(poster_path, 0o600)
-            tmdb.download_image(self.selected_poster["url"], poster_path)
+            if self.local_poster_path:
+                poster_path = self.local_poster_path
+            else:
+                fd, poster_path = tempfile.mkstemp(suffix=".jpg")
+                os.close(fd)
+                os.chmod(poster_path, 0o600)
+                tmdb.download_image(self.selected_poster["url"], poster_path)
 
             out = attacher.full_attach(self.video_path, poster_path)
 
@@ -368,7 +394,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
         finally:
-            if poster_path and os.path.exists(poster_path):
+            if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
                 os.unlink(poster_path)
             self.progress.hide()
             self.attach_btn.setEnabled(True)
