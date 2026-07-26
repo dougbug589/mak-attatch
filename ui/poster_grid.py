@@ -35,12 +35,8 @@ class PosterCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             PosterCard {
-                background: #2a2a2a;
                 border: 2px solid transparent;
                 border-radius: 6px;
-            }
-            PosterCard:hover {
-                border-color: #555;
             }
         """)
 
@@ -54,13 +50,13 @@ class PosterCard(QFrame):
 
         info = QLabel(f"{poster['width']}x{poster['height']}")
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info.setStyleSheet("color: #999; font-size: 11px;")
+        info.setStyleSheet("font-size: 11px;")
         layout.addWidget(info)
 
         lang = poster.get("lang") or "??"
         lang_label = QLabel(lang.upper())
         lang_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lang_label.setStyleSheet("color: #777; font-size: 10px;")
+        lang_label.setStyleSheet("font-size: 10px;")
         layout.addWidget(lang_label)
 
         self.loader = None
@@ -90,7 +86,7 @@ class PosterGrid(QScrollArea):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setMinimumHeight(350)
-        self.setStyleSheet("QScrollArea { background: #1e1e1e; border: none; }")
+        self.setStyleSheet("QScrollArea { border: none; }")
 
         self.container = QWidget()
         self.flow = QFlowLayout(self.container)

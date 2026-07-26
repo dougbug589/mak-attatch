@@ -156,7 +156,6 @@ class MainWindow(QMainWindow):
         icon_path = Path(__file__).resolve().parent.parent / "P.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setStyleSheet(self._styles())
 
         self.video_path = ""
         self.current_posters = []
@@ -193,7 +192,6 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.file_btn)
 
         self.file_label = QLabel("No file selected")
-        self.file_label.setStyleSheet("color: #aaa;")
         row1.addWidget(self.file_label, 1)
         lay.addLayout(row1)
 
@@ -250,7 +248,6 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #aaa;")
         lay.addWidget(self.status_label, 1)
 
         self.progress = QProgressBar()
@@ -401,31 +398,6 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Settings saved")
 
     @staticmethod
-    def _styles() -> str:
-        return """
-            QMainWindow { background: #1e1e1e; }
-            QWidget { background: #1e1e1e; color: #e0e0e0; }
-            QPushButton {
-                background: #333; color: #e0e0e0; border: 1px solid #555;
-                padding: 6px 14px; border-radius: 4px;
-            }
-            QPushButton:hover { background: #444; }
-            QPushButton:disabled { background: #2a2a2a; color: #666; }
-            QLineEdit {
-                background: #2a2a2a; color: #e0e0e0; border: 1px solid #555;
-                padding: 6px; border-radius: 4px;
-            }
-            QListWidget {
-                background: #2a2a2a; color: #e0e0e0; border: 1px solid #555;
-            }
-            QListWidget::item:selected { background: #444; }
-            QProgressBar {
-                border: 1px solid #555; border-radius: 4px; text-align: center;
-            }
-            QProgressBar::chunk { background: #4a9eff; border-radius: 3px; }
-            QLabel { color: #e0e0e0; }
-        """
-
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
