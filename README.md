@@ -5,7 +5,7 @@
 <h1 align="center">Poster Attacher</h1>
 
 <p align="center">
-  Search TMDB for movie and TV posters, preview them, and attach cover art to your video files — all from a simple desktop app.
+  Search TMDB for movie and TV posters, preview them, and attach cover art to your video files — desktop GUI or terminal TUI.
 </p>
 
 ---
@@ -39,6 +39,13 @@ sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
 ```
 
+For the **TUI** (terminal) interface, also install:
+
+```bash
+# Arch
+sudo pacman -S python-textual yazi chafa
+```
+
 ## Installing
 
 The quickest way on Arch:
@@ -68,39 +75,42 @@ sudo make uninstall
 git clone https://github.com/dougbug589/poster-attacher
 cd poster-attacher
 ./setup.sh
-.venv/bin/python main.py
+.venv/bin/python main.py     # desktop GUI
+.venv/bin/python poster-tui   # terminal TUI
 ```
 
-## How to use it
+## Desktop GUI
 
-1. Open the app
-2. Enter your TMDB API key when prompted (grab one for free at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api))
-3. Browse for a video file, or just type a movie/show name and hit search
-4. The app will try to guess the title from the filename, but you can always search manually
-5. Double-click a result to browse available posters
-6. Click a poster to preview it full-size, then select it
-7. Hit **Attach Poster** and you're done
+Run `poster-attacher` (or `python main.py`):
 
-You can also drag and drop video files directly onto the app window.
+1. Enter your TMDB API key when prompted
+2. Browse for a video file, or type a movie/show name and search
+3. Double-click a result to browse available posters
+4. Click a poster to preview it, then select it
+5. Hit **Attach Poster** and you're done
 
-### Batch mode
+Supports drag-and-drop, batch mode, and local images.
 
-Select multiple files at once using **Browse Multiple**, or drop several files at once. Pick a poster and attach it to all of them in one go.
+## Terminal TUI
 
-### Local images
+Run `poster-attacher-tui` (or `python poster-tui`):
 
-Don't want to search TMDB? Click **Use Local Image** to pick any image file from your computer.
+1. Enter your TMDB API key when prompted
+2. Search for a movie/show, then click a result
+3. Navigate the poster list with arrow keys, press Enter to preview
+4. Press Enter again to return, then attach
+
+File browsing via yazi, paste paths manually for batch mode. See keybindings in the footer (`Ctrl+L`/`Ctrl+M`/`Ctrl+R` to jump between panels).
 
 ## Features
 
 - Pulls posters from TMDB (movies and TV shows)
 - Auto-detects title from video filenames
 - Browse, preview, and pick from all available poster versions
-- Drag and drop support
 - Batch attach/remove for multiple files
 - Use your own local images as posters
 - Works with MKV, MP4, MOV, AVI, and more — keeps original format when possible
-- Follows your system theme (works nicely on KDE, GNOME, etc.)
+- Two interfaces: desktop GUI (PyQt6) or terminal TUI (Textual)
 
 ## License
 
