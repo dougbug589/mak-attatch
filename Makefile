@@ -1,5 +1,5 @@
 PREFIX ?= /usr/local
-APP = poster-attacher
+APP = mak-attatch
 PYTHON = python3
 
 all: venv
@@ -21,12 +21,13 @@ install:
 	echo '#!/bin/sh' > $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
 	echo 'exec $(PREFIX)/lib/$(APP)/.venv/bin/python $(PREFIX)/lib/$(APP)/poster-tui "$$@"' >> $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
 	chmod +x $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
-	cp poster-attacher.desktop $(DESTDIR)$(PREFIX)/share/applications/
+	cp mak-attatch.desktop $(DESTDIR)$(PREFIX)/share/applications/
 
 uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/lib/$(APP)
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(APP)
-	rm -f $(DESTDIR)$(PREFIX)/share/applications/poster-attacher.desktop
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
+	rm -f $(DESTDIR)$(PREFIX)/share/applications/mak-attatch.desktop
 
 clean:
 	rm -rf .venv __pycache__ ui/__pycache__ core/__pycache__

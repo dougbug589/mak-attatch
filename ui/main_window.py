@@ -173,7 +173,7 @@ class PosterPreviewDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Poster Attacher")
+        self.setWindowTitle("mak-attatch")
         self.setMinimumSize(900, 700)
         icon_path = Path(__file__).resolve().parent.parent / "assets" / "P.png"
         if icon_path.exists():

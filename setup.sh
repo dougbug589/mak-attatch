@@ -12,4 +12,4 @@ echo "Installing dependencies..."
 "$VENV_DIR/bin/pip" install -q --upgrade pip
 "$VENV_DIR/bin/pip" install -q -r "$(dirname "$0")/requirements.txt"
 
-echo "Done. Run with: $VENV_DIR/bin/python main.py"
+echo "Done. Run with: $VENV_DIR/bin/python main.py (GUI) or $VENV_DIR/bin/python poster-tui (TUI)"

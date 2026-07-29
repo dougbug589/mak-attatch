@@ -22,7 +22,7 @@ def _get_session() -> requests.Session:
     if _session is None:
         _session = requests.Session()
         _session.max_redirects = MAX_REDIRECTS
-        _session.headers["User-Agent"] = "poster-attacher/1.0"
+        _session.headers["User-Agent"] = "mak-attatch/1.0"
     return _session
 
 

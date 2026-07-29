@@ -49,7 +49,7 @@ class PosterTuiApp(App):
         Binding("ctrl+r", "focus_right_panel", "Right (Files)"),
     ]
 
-    TITLE = "Poster Attacher TUI"
+    TITLE = "mak-attatch TUI"
     CSS = CSS
 
     def compose(self) -> ComposeResult:

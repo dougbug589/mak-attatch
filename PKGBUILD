@@ -1,10 +1,10 @@
 # Maintainer: yourname <youremail>
-pkgname=poster-attacher
+pkgname=mak-attatch
 pkgver=1.0.0
 pkgrel=3
 pkgdesc="Attach cover art posters to video files"
 arch=('x86_64' 'aarch64')
-url="https://github.com/dougbug589/poster-attacher"
+url="https://github.com/dougbug589/mak-attatch"
 license=('MIT')
 depends=('python' 'python-pyqt6' 'python-requests' 'python-guessit' 'ffmpeg' 'mkvtoolnix-cli')
 optdepends=('python-textual: TUI interface' 'yazi: TUI file browser' 'chafa: TUI image preview')
@@ -35,5 +35,5 @@ EOF
 exec /usr/lib/$pkgname/.venv/bin/python /usr/lib/$pkgname/poster-tui "\$@"
 EOF
 
-    install -Dm644 poster-attacher.desktop "$pkgdir/usr/share/applications/poster-attacher.desktop"
+    install -Dm644 mak-attatch.desktop "$pkgdir/usr/share/applications/mak-attatch.desktop"
 }

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/P.png" alt="Poster Attacher" width="120">
+  <img src="assets/P.png" alt="mak-attatch" width="120">
 </p>
 
-<h1 align="center">Poster Attacher</h1>
+<h1 align="center">mak-attatch</h1>
 
 <p align="center">
   Search TMDB for movie and TV posters, preview them, and embed cover art into your video files.
@@ -38,7 +38,7 @@ No more manually downloading posters and figuring out `mkvpropedit` flags.
 | Python | 3.10+ | |
 | ffmpeg | latest | MP4/MOV poster attachment and removal |
 | mkvtoolnix-cli | latest | `mkvpropedit` for MKV attachment |
-| TMDB API key | free | Enter on first launch; stored in `~/.config/poster-attacher/` |
+| TMDB API key | free | Enter on first launch; stored in `~/.config/mak-attatch/` |
 
 ### TUI-only extras
 
@@ -75,14 +75,14 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 ### Via AUR (Arch)
 
 ```bash
-yay -S poster-attacher
+yay -S mak-attatch
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/dougbug589/poster-attacher
-cd poster-attacher
+git clone https://github.com/dougbug589/mak-attatch
+cd mak-attatch
 make
 sudo make install
 ```
@@ -96,11 +96,11 @@ sudo make uninstall
 ### Try without installing
 
 ```bash
-git clone https://github.com/dougbug589/poster-attacher
-cd poster-attacher
+git clone https://github.com/dougbug589/mak-attatch
+cd mak-attatch
 ./setup.sh
-.venv/bin/python main.py        # desktop GUI
-.venv/bin/python poster-tui     # terminal TUI
+.venv/bin/python main.py       # desktop GUI
+.venv/bin/python poster-tui    # terminal TUI
 ```
 
 ---
@@ -108,7 +108,7 @@ cd poster-attacher
 ## Desktop GUI
 
 ```
-poster-attacher
+mak-attatch
 ```
 
 1. Enter your TMDB API key on first launch
@@ -124,7 +124,7 @@ poster-attacher
 ## Terminal TUI
 
 ```
-poster-attacher-tui
+mak-attatch-tui
 ```
 
 ### Quick start
@@ -194,7 +194,7 @@ Standard desktop shortcuts — `Ctrl+O` to open files, `Ctrl+V` to paste, etc.
 Your TMDB API key is stored in:
 
 ```
-~/.config/poster-attacher/config.json
+~/.config/mak-attatch/config.json
 ```
 
 You get one free at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both the GUI and TUI prompt for it on first launch.
@@ -216,7 +216,7 @@ Prompts for add/remove mode, video path, and optional poster image path. Handles
 ## Project structure
 
 ```
-poster-attacher/
+mak-attatch/
 ├── main.py              # Desktop GUI entry point
 ├── poster-tui           # Terminal TUI entry point
 ├── poster_tui/          # TUI application

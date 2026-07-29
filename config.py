@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "poster-attacher"
+CONFIG_DIR = Path.home() / ".config" / "mak-attatch"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
