@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("mak-attatch")
         self.setMinimumSize(900, 700)
-        icon_path = Path(__file__).resolve().parent.parent / "assets" / "P.png"
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 

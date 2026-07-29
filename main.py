@@ -22,7 +22,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("mak-attatch")
     app.setOrganizationName("mak-attatch")
-    icon_path = Path(__file__).resolve().parent / "assets" / "P.png"
+    icon_path = Path(__file__).resolve().parent / "assets" / "logo.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow()
