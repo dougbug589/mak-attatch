@@ -26,22 +26,13 @@ def _get_session() -> requests.Session:
     return _session
 
 
-def _is_v4_token(key: str) -> bool:
-    return len(key) > 50
-
-
 def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Response:
     _validate_url(url)
     session = _get_session()
     headers = {}
     if urlparse(url).hostname == "api.themoviedb.org":
         api_key = config.get("tmdb_api_key")
-        if _is_v4_token(api_key):
-            headers["Authorization"] = f"Bearer {api_key}"
-        else:
-            if params is None:
-                params = {}
-            params["api_key"] = api_key
+        headers["Authorization"] = f"Bearer {api_key}"
     resp = session.get(url, params=params, stream=stream, timeout=TIMEOUT,
                         allow_redirects=True, headers=headers)
     _validate_url(resp.url)
@@ -127,9 +118,16 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
     return posters
 
 
+VALID_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff"}
+
+
 def download_image(url: str, dest: str):
     _validate_url(url)
     resp = _fetch(url, stream=True)
+
+    content_type = resp.headers.get("content-type", "").lower().split(";")[0].strip()
+    if content_type not in VALID_IMAGE_TYPES:
+        raise TMDBError(f"Unexpected content type: {content_type}")
 
     content_length = int(resp.headers.get("content-length", 0))
     if content_length > MAX_IMAGE_SIZE:

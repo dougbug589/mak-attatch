@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import shutil
 import subprocess
@@ -36,9 +35,6 @@ ListView { height: 1fr; }
 """
 
 
-YOCTO_FILE = "/tmp/pa-yazi-choice"
-
-
 class PosterTuiApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -72,6 +68,8 @@ class PosterTuiApp(App):
                 yield Button("Add", id="add_path_btn")
             with Horizontal(id="btn_row"):
                 yield Button("Local Image", id="local_img_btn")
+                yield Button("Clear Files", id="clear_btn")
+            with Horizontal(id="settings_row"):
                 yield Button("Settings", id="settings_btn")
             with Horizontal(id="action_row"):
                 yield Button("Attach", id="attach_btn", disabled=True)
@@ -87,6 +85,7 @@ class PosterTuiApp(App):
         self.posters: list[dict] = []
         self.selected_poster: dict | None = None
         self.local_poster_path: str | None = None
+        self._yazi_chooser: str | None = None
 
     def on_mount(self):
         if not config.get("tmdb_api_key"):
@@ -138,19 +137,24 @@ class PosterTuiApp(App):
 
     def _yazi_pick(self) -> str | None:
         start_dir = config.get("last_dir") or str(Path.home())
+        fd, chooser = tempfile.mkstemp(prefix="yazi-chooser-")
+        os.close(fd)
+        self._yazi_chooser = chooser
         try:
-            os.unlink(YOCTO_FILE)
-        except FileNotFoundError:
-            pass
-        proc = subprocess.run(
-            ["yazi", "--chooser-file", YOCTO_FILE, start_dir],
-            timeout=300,
-        )
-        if proc.returncode == 0 and os.path.exists(YOCTO_FILE):
-            path = Path(YOCTO_FILE).read_text().strip()
-            if path:
-                return path
-        return None
+            proc = subprocess.run(
+                ["yazi", "--chooser-file", chooser, "--", start_dir],
+                timeout=300,
+            )
+            if proc.returncode == 0 and os.path.exists(chooser):
+                path = Path(chooser).read_text().strip()
+                if path:
+                    return path
+            return None
+        finally:
+            try:
+                os.unlink(chooser)
+            except OSError:
+                pass
 
     @on(Button.Pressed, "#browse_btn")
     def on_browse(self):
@@ -167,7 +171,7 @@ class PosterTuiApp(App):
         if not os.path.isfile(path):
             self.query_one("#status").update(f"Not a file: {path}")
             return
-        p = os.path.abspath(path)
+        p = os.path.realpath(path)
         if p in self.video_paths:
             self.query_one("#status").update(f"Already added: {Path(p).name}")
             return
@@ -196,6 +200,14 @@ class PosterTuiApp(App):
                     self.query_one("#status").update(f"Not found: {line}")
         self.query_one("#path_input").value = ""
 
+    @on(Button.Pressed, "#clear_btn")
+    def on_clear_files(self):
+        self.video_paths.clear()
+        self.query_one("#file_list").clear()
+        self.query_one("#files_label").update("Video Files:")
+        self.query_one("#attach_btn").disabled = True
+        self.query_one("#status").update("File list cleared")
+
     @on(Button.Pressed, "#local_img_btn")
     def on_local_image(self):
         try:
@@ -222,7 +234,7 @@ class PosterTuiApp(App):
             return
         try:
             with self.suspend():
-                subprocess.run(["clear"])
+                print("\033[2J\033[H", end="")
                 for fmt in ("kitty", "sixel", "symbols"):
                     args = ["chafa", "--format=" + fmt, path]
                     if fmt == "symbols":
@@ -331,16 +343,18 @@ class PosterTuiApp(App):
         tmp = None
         try:
             resp = tmdb._fetch(url)
-            tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-            tmp.write(resp.content)
-            tmp.close()
-            self.call_from_thread(self._preview_native, tmp.name, info)
+            fd, tmp = tempfile.mkstemp(suffix=".jpg")
+            os.close(fd)
+            with open(tmp, "wb") as f:
+                f.write(resp.content)
+            os.chmod(tmp, 0o600)
+            self.call_from_thread(self._preview_native, tmp, info)
         except Exception:
             pass
         finally:
             if tmp:
                 try:
-                    os.unlink(tmp.name)
+                    os.unlink(tmp)
                 except OSError:
                     pass
 

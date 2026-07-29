@@ -15,13 +15,16 @@ def check_tools():
 
 
 def _validate_path(path: str, allowed_suffixes: set = None) -> Path:
-    p = Path(path).resolve()
+    if path.startswith("-"):
+        raise ValueError(f"Path starts with '-', possible argument injection: {path}")
+    raw = Path(path)
+    if ".." in str(raw):
+        raise ValueError(f"Path traversal detected: {path}")
+    p = raw.resolve()
     if not p.exists():
         raise FileNotFoundError(f"File not found: {path}")
     if not p.is_file():
         raise ValueError(f"Not a file: {path}")
-    if ".." in str(p):
-        raise ValueError(f"Path traversal detected: {path}")
     if allowed_suffixes and p.suffix.lower() not in allowed_suffixes:
         raise ValueError(f"Unexpected file type: {p.suffix}")
     return p
@@ -75,10 +78,10 @@ def attach_poster_mkv(video_path: str, poster_path: str):
     mime = _get_mime(poster_path)
     subprocess.run(
         [
-            "mkvpropedit", video_path,
+            "mkvpropedit", "--", video_path,
             "--attachment-mime-type", mime,
             "--attachment-name", Path(poster_path).name,
-            "--add-attachment", poster_path,
+            "--add-attachment", "--", poster_path,
         ],
         check=True, capture_output=True, timeout=60,
     )
@@ -137,8 +140,8 @@ def remove_poster(video_path: str):
     ext = Path(video_path).suffix.lower()
     if ext in MKV_COMPAT_EXTS:
         result = subprocess.run(
-            ["mkvpropedit", video_path, "--delete-attachment", "name:cover.jpg"],
-            capture_output=True,
+            ["mkvpropedit", "--", video_path, "--delete-attachment", "name:cover.jpg"],
+            capture_output=True, timeout=60,
         )
         if result.returncode != 0:
             stderr = result.stderr.decode(errors='ignore').lower()
