@@ -21,6 +21,10 @@
   <a href="#keyboard-shortcuts">Shortcuts</a>
 </p>
 
+<p align="center">
+  <img src="https://github.com/dougbug589/mak-attatch/actions/workflows/ci.yml/badge.svg" alt="CI">
+</p>
+
 ---
 
 ## What it does
@@ -74,8 +78,12 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 
 ### Via AUR (Arch)
 
+Package submission to the AUR is in progress. Until it lands, build and install directly from the PKGBUILD:
+
 ```bash
-yay -S mak-attatch
+git clone https://github.com/dougbug589/mak-attatch
+cd mak-attatch
+makepkg -si
 ```
 
 ### From source
@@ -83,9 +91,10 @@ yay -S mak-attatch
 ```bash
 git clone https://github.com/dougbug589/mak-attatch
 cd mak-attatch
-make
 sudo make install
 ```
+
+Install the system dependencies from the [Requirements](#requirements) section first.
 
 ### Uninstall
 
