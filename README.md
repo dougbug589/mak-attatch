@@ -78,10 +78,14 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 
 ### Via AUR (Arch)
 
-Package submission to the AUR is in progress. Until it lands, build and install directly from the PKGBUILD:
+```bash
+yay -S mak-attatch
+```
+
+Or build it manually:
 
 ```bash
-git clone https://github.com/dougbug589/mak-attatch
+git clone https://aur.archlinux.org/mak-attatch.git
 cd mak-attatch
 makepkg -si
 ```
