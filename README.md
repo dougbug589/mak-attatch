@@ -176,8 +176,18 @@ Standard desktop shortcuts — `Ctrl+O` to open files, `Ctrl+V` to paste, etc.
 | **Format support** | MKV (native), MP4, MOV, AVI — keeps original container when possible |
 | **Batch attach** | Select multiple files, attach the same poster to all at once |
 | **Batch remove** | Strip cover art from multiple files in one go |
+| **Metadata embed** | Optionally scrape title/tagline/overview/genres/cast from TMDB and embed (MKV tags / MP4 tags) |
+| **Metadata remove** | Strip all title/tags metadata (MKV + MP4); re-embedding overwrites stale tags |
 | **Local images** | Use any JPEG/PNG/etc as a poster (auto-converts to JPG for MKV) |
 | **Two interfaces** | Full desktop GUI (PyQt6) or lightweight terminal TUI (Textual) |
+
+### Metadata
+
+Tick **Scrape metadata** before attaching to fetch title, year, tagline, overview, genres, rating, directors/writers (movies) or creators/seasons/episodes (TV), and cast from TMDB. Written as Matroska tags for MKV and ffmpeg tags for MP4/MOV.
+
+**Remove Metadata** (GUI button / `Rm Metadata` in TUI) strips the segment title and all tag elements from MKV files via `mkvpropedit`, and rewrites MP4/MOV without any global tags via ffmpeg. Poster artwork is kept.
+
+Re-attaching with metadata always overwrites any previously embedded tags — stale titles/genres are discarded before the new ones are written.
 
 ### What happens per format
 
@@ -186,6 +196,8 @@ Standard desktop shortcuts — `Ctrl+O` to open files, `Ctrl+V` to paste, etc.
 | **MKV** | `mkvpropedit --add-attachment` | `mkvpropedit --delete-attachment` |
 | **MP4/MOV** | `ffmpeg -disposition:v:1 attached_pic` | ffprobe detect + ffmpeg remux strip |
 | **Other** (AVI, etc.) | Convert to MKV first, then attach | Convert to MKV first, then remove |
+
+Metadata removal: MKV uses `mkvpropedit --edit info --delete title --tags all:`; MP4/MOV uses an ffmpeg remux with `-map_metadata -1`.
 
 ---
 

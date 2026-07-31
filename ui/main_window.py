@@ -311,6 +311,11 @@ class MainWindow(QMainWindow):
         self.remove_btn.clicked.connect(self._remove)
         lay.addWidget(self.remove_btn)
 
+        self.remove_meta_btn = QPushButton("Remove Metadata")
+        self.remove_meta_btn.setToolTip("Strip all title/tags metadata from the video")
+        self.remove_meta_btn.clicked.connect(self._remove_metadata)
+        lay.addWidget(self.remove_meta_btn)
+
         return w
 
     def _browse_video(self):
@@ -536,6 +541,36 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         if ApiKeyDialog(self).exec() == QDialog.DialogCode.Accepted:
             self.status_label.setText("Settings saved")
+
+    def _remove_metadata(self):
+        videos = self.video_paths or ([self.video_path] if self.video_path else [])
+        if not videos:
+            QMessageBox.warning(self, "No Files", "Select a video file first.")
+            return
+        msg = (f"Remove all metadata from {len(videos)} file(s)?\n"
+               "Poster artwork will be kept.")
+        if QMessageBox.question(self, "Remove Metadata", msg) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            fail = self._batch_remove_metadata(videos)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            return
+        ok = len(videos) - len(fail)
+        if fail:
+            QMessageBox.warning(self, "Done", f"Removed metadata from {ok} files.\n{fail} failed.")
+        else:
+            QMessageBox.information(self, "Done", f"Metadata removed from all {ok} files!")
+        self.status_label.setText(f"Remove metadata: {ok} succeeded, {len(fail)} failed")
+
+    def _batch_remove_metadata(self, videos):
+        fail = []
+        for v in videos:
+            try:
+                attacher.remove_metadata(v)
+            except Exception as e:
+                fail.append(f"{v}\n  {e}")
+        return fail
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():

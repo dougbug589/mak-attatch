@@ -151,7 +151,7 @@ def write_metadata_mp4(video_path: str, metadata: dict):
             [
                 "ffmpeg", "-y", "-i", video_path,
                 "-map", "0",
-                "-map_metadata", "0",
+                "-map_metadata", "-1",
                 *_mp4_metadata_flags(metadata),
                 "-c", "copy",
                 tmp,
@@ -175,6 +175,38 @@ def write_metadata(video_path: str, metadata: dict):
         write_metadata_mp4(video_path, metadata)
     else:
         raise RuntimeError("Metadata writing is only supported for MKV and MP4 files")
+
+
+def remove_metadata(video_path: str):
+    _validate_path(video_path, VIDEO_EXTS)
+    ext = Path(video_path).suffix.lower()
+    if ext in MKV_COMPAT_EXTS:
+        subprocess.run(
+            ["mkvpropedit", video_path, "--edit", "info", "--delete", "title", "--tags", "all:"],
+            check=True, capture_output=True, timeout=60,
+        )
+    elif ext in MP4_COMPAT_EXTS:
+        tmp = str(Path(video_path).with_suffix(".meta_rm_tmp.mp4"))
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y", "-i", video_path,
+                    "-map", "0",
+                    "-map_metadata", "-1",
+                    "-c", "copy",
+                    tmp,
+                ],
+                capture_output=True, timeout=300,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
+            os.replace(tmp, video_path)
+        except Exception:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+            raise
+    else:
+        raise RuntimeError("Metadata removal is only supported for MKV and MP4 files")
 
 
 def to_mkv(video_path: str) -> str:

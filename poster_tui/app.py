@@ -74,6 +74,7 @@ class PosterTuiApp(App):
             with Horizontal(id="action_row"):
                 yield Button("Attach", id="attach_btn", disabled=True)
                 yield Button("Remove", id="remove_btn")
+                yield Button("Rm Metadata", id="remove_meta_btn")
                 yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
             yield Label("Ready", id="status")
@@ -236,7 +237,7 @@ class PosterTuiApp(App):
             return
         try:
             with self.suspend():
-                print("\033[2J\033[H", end="")
+                print("\033[2J\033[H", end="", flush=True)
                 for fmt in ("kitty", "sixel", "symbols"):
                     args = ["chafa", "--format=" + fmt, path]
                     if fmt == "symbols":
@@ -246,8 +247,8 @@ class PosterTuiApp(App):
                     if ret == 0:
                         break
                 if info:
-                    print(f"\n{info}")
-                print("\nPress Enter to return...")
+                    print(f"\n{info}", flush=True)
+                print("\nPress Enter to return...", flush=True)
                 input()
         except FileNotFoundError:
             pass
@@ -442,6 +443,32 @@ class PosterTuiApp(App):
             except Exception:
                 fail += 1
         msg = f"Removed from {ok} file(s)" if fail == 0 else f"Removed: {ok}, Failed: {fail}"
+        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+
+    @on(Button.Pressed, "#remove_meta_btn")
+    def on_remove_metadata(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
+        self._do_remove_metadata()
+
+    @work(thread=True)
+    def _do_remove_metadata(self):
+        total = len(self.video_paths)
+        ok = 0
+        fail = 0
+        for i, path in enumerate(self.video_paths):
+            self.call_from_thread(
+                lambda i=i, p=path: self.query_one("#status").update(
+                    f"Removing metadata {i+1}/{total}: {Path(p).name}"
+                )
+            )
+            try:
+                attacher.remove_metadata(path)
+                ok += 1
+            except Exception:
+                fail += 1
+        msg = f"Removed metadata from {ok} file(s)" if fail == 0 else f"Removed metadata: {ok}, Failed: {fail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     @on(Button.Pressed, "#settings_btn")

@@ -117,6 +117,66 @@ class TestAttacher(unittest.TestCase):
         attacher.remove_poster(str(v))
         self.assertEqual(_pic_count(str(v)), 0)
 
+    def _tags(self, path: str) -> list:
+        fmt = subprocess.run(["ffprobe", "-v", "quiet", "-show_format", path],
+                             capture_output=True).stdout.decode()
+        skip = ("TAG:major_brand", "TAG:minor_version", "TAG:compatible_brands")
+        return sorted(l for l in fmt.splitlines()
+                      if l.startswith("TAG:") and not l.startswith(skip))
+
+    def test_mkv_remove_metadata(self):
+        v = self.tmp / "rm.mkv"
+        _make_video(v)
+        attacher.write_metadata(str(v), _meta())
+        self.assertIn("TAG:TITLE=Test Movie", self._tags(str(v)))
+        attacher.remove_metadata(str(v))
+        tags = self._tags(str(v))
+        self.assertNotIn("TAG:TITLE=Test Movie", tags)
+        self.assertNotIn("TAG:title=Test Movie", tags)
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mp4_remove_metadata(self):
+        v = self.tmp / "rm.mp4"
+        _make_video(v, "libx264")
+        subprocess.run(["ffmpeg", "-y", "-i", str(v), "-map", "0",
+                        "-metadata", "title=Old Title", "-metadata", "genre=Old Genre",
+                        "-c", "copy", str(self.tmp / "rm2.mp4")],
+                       check=True, capture_output=True)
+        v = self.tmp / "rm2.mp4"
+        self.assertIn("TAG:title=Old Title", self._tags(str(v)))
+        attacher.remove_metadata(str(v))
+        tags = self._tags(str(v))
+        self.assertNotIn("TAG:title=Old Title", tags)
+        self.assertNotIn("TAG:genre=Old Genre", tags)
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mp4_metadata_overwrites_stale(self):
+        v = self.tmp / "ow.mp4"
+        _make_video(v, "libx264")
+        subprocess.run(["ffmpeg", "-y", "-i", str(v), "-map", "0",
+                        "-metadata", "title=Stale Title", "-metadata", "genre=Stale Genre",
+                        "-c", "copy", str(self.tmp / "ow2.mp4")],
+                       check=True, capture_output=True)
+        v = self.tmp / "ow2.mp4"
+        attacher.write_metadata(str(v), {"title": "Fresh Title", "genres": ["Action"]})
+        tags = self._tags(str(v))
+        self.assertIn("TAG:title=Fresh Title", tags)
+        self.assertNotIn("Stale", " ".join(tags))
+
+    def test_mkv_metadata_overwrites_stale(self):
+        v = self.tmp / "ow.mkv"
+        _make_video(v)
+        attacher.write_metadata(str(v), {"title": "Stale Title", "genres": ["Horror"]})
+        attacher.write_metadata(str(v), {"title": "Fresh Title", "genres": ["Action"]})
+        tags = self._tags(str(v))
+        self.assertIn("TAG:TITLE=Fresh Title", tags)
+        self.assertNotIn("Stale", " ".join(tags))
+
+    def test_remove_metadata_injection_guard(self):
+        for bad in ("-V", "../x.mkv", "x; rm -rf /"):
+            with self.assertRaises((ValueError, FileNotFoundError)):
+                attacher.remove_metadata(bad)
+
     def test_avi_converts_to_mkv(self):
         v = self.tmp / "e.avi"
         _make_video(v)
@@ -152,8 +212,9 @@ class TestMetadataXml(unittest.TestCase):
     def test_mirror_parity(self):
         import poster_tui.core.attacher as tui
         for fn in ("full_attach", "attach_poster_mkv", "attach_poster_mp4",
-                   "remove_poster", "write_metadata", "write_metadata_mkv",
-                   "write_metadata_mp4", "build_mkv_tags_xml"):
+                   "remove_poster", "remove_metadata", "write_metadata",
+                   "write_metadata_mkv", "write_metadata_mp4",
+                   "build_mkv_tags_xml"):
             self.assertTrue(hasattr(tui, fn), fn)
             self.assertTrue(hasattr(attacher, fn), fn)
 
