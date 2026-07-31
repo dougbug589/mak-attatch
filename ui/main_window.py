@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget,
     QProgressBar, QSizePolicy,
@@ -97,10 +97,11 @@ class BatchWorker(QThread):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
 
-    def __init__(self, video_paths: list, poster_path: str):
+    def __init__(self, video_paths: list, poster_path: str, metadata: dict = None):
         super().__init__()
         self.video_paths = video_paths
         self.poster_path = poster_path
+        self.metadata = metadata
 
     def run(self):
         results = []
@@ -108,7 +109,7 @@ class BatchWorker(QThread):
         for i, path in enumerate(self.video_paths):
             self.progress.emit(i + 1, total, Path(path).name)
             try:
-                out = attacher.full_attach(path, self.poster_path)
+                out = attacher.full_attach(path, self.poster_path, metadata=self.metadata)
                 results.append({"path": path, "out": out, "ok": True})
             except Exception as e:
                 results.append({"path": path, "out": str(e), "ok": False})
@@ -184,6 +185,7 @@ class MainWindow(QMainWindow):
         self.current_posters = []
         self.selected_poster = None
         self.local_poster_path = None
+        self.current_media = None
 
         self.setAcceptDrops(True)
 
@@ -301,6 +303,10 @@ class MainWindow(QMainWindow):
         self.attach_btn.clicked.connect(self._attach)
         lay.addWidget(self.attach_btn)
 
+        self.meta_check = QCheckBox("Scrape metadata")
+        self.meta_check.setToolTip("Embed TMDB metadata (title, overview, rating, credits)")
+        lay.addWidget(self.meta_check)
+
         self.remove_btn = QPushButton("Remove Poster")
         self.remove_btn.clicked.connect(self._remove)
         lay.addWidget(self.remove_btn)
@@ -365,6 +371,7 @@ class MainWindow(QMainWindow):
 
     def _on_result_selected(self, item: QListWidgetItem):
         data = item.data(Qt.ItemDataRole.UserRole)
+        self.current_media = {"id": data["id"], "media_type": data["media_type"]}
         self.status_label.setText(f"Loading posters for {data['title']}...")
 
         self._poster_worker = PosterWorker(data["id"], data["media_type"])
@@ -415,6 +422,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Preparing poster...")
 
         poster_path = None
+        metadata = None
         try:
             if self.local_poster_path:
                 poster_path = self.local_poster_path
@@ -424,8 +432,14 @@ class MainWindow(QMainWindow):
                 os.chmod(poster_path, 0o600)
                 tmdb.download_image(self.selected_poster["url"], poster_path)
 
+            if self.meta_check.isChecked() and self.current_media:
+                self.status_label.setText("Scraping metadata...")
+                metadata = tmdb.get_details(
+                    self.current_media["id"], self.current_media["media_type"]
+                )
+
             if len(self.video_paths) == 1:
-                out = attacher.full_attach(self.video_paths[0], poster_path)
+                out = attacher.full_attach(self.video_paths[0], poster_path, metadata=metadata)
                 if out != self.video_paths[0]:
                     self.video_path = out
                     self.video_paths = [out]
@@ -433,7 +447,7 @@ class MainWindow(QMainWindow):
                 self.status_label.setText("Poster attached successfully!")
                 QMessageBox.information(self, "Done", "Poster attached successfully!")
             else:
-                self._batch_attach(poster_path)
+                self._batch_attach(poster_path, metadata)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
@@ -444,12 +458,12 @@ class MainWindow(QMainWindow):
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
 
-    def _batch_attach(self, poster_path):
+    def _batch_attach(self, poster_path, metadata=None):
         self.progress.setRange(0, len(self.video_paths))
         self.progress.setValue(0)
         self.status_label.setText(f"Attaching to 1/{len(self.video_paths)}...")
 
-        self._batch_worker = BatchWorker(self.video_paths, poster_path)
+        self._batch_worker = BatchWorker(self.video_paths, poster_path, metadata)
         self._batch_worker.progress.connect(self._on_batch_progress)
         self._batch_worker.finished.connect(self._on_batch_done)
         self._batch_worker.start()

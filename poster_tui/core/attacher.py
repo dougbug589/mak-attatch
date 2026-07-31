@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -58,6 +59,124 @@ def _get_mime(image_path: str) -> str:
     return MIME_MAP.get(ext, "image/jpeg")
 
 
+def _add_simple(parent: ET.Element, name: str, value: str):
+    simple = ET.SubElement(parent, "Simple")
+    ET.SubElement(simple, "Name").text = name
+    if value:
+        ET.SubElement(simple, "String").text = str(value)
+
+
+def build_mkv_tags_xml(metadata: dict) -> str:
+    root = ET.Element("Tags")
+    tag = ET.SubElement(root, "Tag")
+    targets = ET.SubElement(tag, "Targets")
+    ET.SubElement(targets, "TargetTypeValue").text = "50"
+
+    if metadata.get("title"):
+        _add_simple(tag, "TITLE", metadata["title"])
+    if metadata.get("year"):
+        _add_simple(tag, "DATE_RELEASED", metadata["year"])
+    if metadata.get("genres"):
+        _add_simple(tag, "GENRE", ", ".join(metadata["genres"]))
+    if metadata.get("rating"):
+        _add_simple(tag, "RATING", f"{metadata['rating']:.1f}")
+    if metadata.get("tagline"):
+        _add_simple(tag, "COMMENT", metadata["tagline"])
+    if metadata.get("overview"):
+        _add_simple(tag, "SYNOPSIS", metadata["overview"])
+
+    for role in ("directors", "writers", "creators"):
+        for name in metadata.get(role) or []:
+            tag_name = "DIRECTOR" if role == "directors" else "WRITTEN_BY"
+            _add_simple(tag, tag_name, name)
+
+    for actor in metadata.get("cast") or []:
+        simple = ET.SubElement(tag, "Simple")
+        ET.SubElement(simple, "Name").text = "ACTOR"
+        ET.SubElement(simple, "String").text = str(actor["name"])
+        if actor.get("character"):
+            child = ET.SubElement(simple, "Simple")
+            ET.SubElement(child, "Name").text = "CHARACTER"
+            ET.SubElement(child, "String").text = str(actor["character"])
+
+    return ET.tostring(root, encoding="unicode", xml_declaration=False)
+
+
+def write_metadata_mkv(video_path: str, metadata: dict):
+    _validate_path(video_path, VIDEO_EXTS)
+    tags_path = None
+    try:
+        fd, tags_path = tempfile.mkstemp(suffix=".xml")
+        os.close(fd)
+        os.chmod(tags_path, 0o600)
+        with open(tags_path, "w", encoding="utf-8") as f:
+            f.write(build_mkv_tags_xml(metadata))
+
+        cmd = ["mkvpropedit", video_path]
+        if metadata.get("title"):
+            cmd += ["--edit", "info", "--set", f"title={metadata['title']}"]
+        cmd += ["--tags", f"all:{tags_path}"]
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+    finally:
+        if tags_path:
+            try:
+                os.unlink(tags_path)
+            except OSError:
+                pass
+
+
+def _mp4_metadata_flags(metadata: dict) -> list[str]:
+    flags = []
+    if metadata.get("title"):
+        flags += ["-metadata", f"title={metadata['title']}"]
+    if metadata.get("year"):
+        flags += ["-metadata", f"date={metadata['year']}"]
+    if metadata.get("overview"):
+        flags += ["-metadata", f"description={metadata['overview']}"]
+    if metadata.get("genres"):
+        flags += ["-metadata", f"genre={', '.join(metadata['genres'])}"]
+    if metadata.get("tagline"):
+        flags += ["-metadata", f"comment={metadata['tagline']}"]
+    directors = ", ".join(metadata.get("directors") or [])
+    if directors:
+        flags += ["-metadata", f"author={directors}"]
+    return flags
+
+
+def write_metadata_mp4(video_path: str, metadata: dict):
+    _validate_path(video_path, VIDEO_EXTS)
+    tmp = str(Path(video_path).with_suffix(".meta_tmp.mp4"))
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", video_path,
+                "-map", "0",
+                "-map_metadata", "0",
+                *_mp4_metadata_flags(metadata),
+                "-c", "copy",
+                tmp,
+            ],
+            capture_output=True, timeout=300,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
+        os.replace(tmp, video_path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def write_metadata(video_path: str, metadata: dict):
+    ext = Path(video_path).suffix.lower()
+    if ext in MKV_COMPAT_EXTS:
+        write_metadata_mkv(video_path, metadata)
+    elif ext in MP4_COMPAT_EXTS:
+        write_metadata_mp4(video_path, metadata)
+    else:
+        raise RuntimeError("Metadata writing is only supported for MKV and MP4 files")
+
+
 def to_mkv(video_path: str) -> str:
     p = _validate_path(video_path, VIDEO_EXTS)
     if p.suffix.lower() in MKV_COMPAT_EXTS:
@@ -78,28 +197,32 @@ def attach_poster_mkv(video_path: str, poster_path: str):
     mime = _get_mime(poster_path)
     subprocess.run(
         [
-            "mkvpropedit", "--", video_path,
+            "mkvpropedit", video_path,
             "--attachment-mime-type", mime,
-            "--attachment-name", Path(poster_path).name,
-            "--add-attachment", "--", poster_path,
+            "--attachment-name", "cover.jpg",
+            "--add-attachment", poster_path,
         ],
         check=True, capture_output=True, timeout=60,
     )
 
 
-def attach_poster_mp4(video_path: str, poster_path: str):
+def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     _validate_path(video_path, VIDEO_EXTS)
     _validate_path(poster_path, IMAGE_EXTS)
+    remove_poster(video_path)
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", poster_path,
+        "-map", "0", "-map", "1",
+        "-c", "copy",
+        "-disposition:v:1", "attached_pic",
+    ]
+    if metadata:
+        cmd += _mp4_metadata_flags(metadata)
+    cmd += [video_path + ".tmp.mp4"]
     subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-i", poster_path,
-            "-map", "0", "-map", "1",
-            "-c", "copy",
-            "-disposition:v:1", "attached_pic",
-            video_path + ".tmp.mp4",
-        ],
+        cmd,
         check=True, capture_output=True, timeout=60,
     )
     os.replace(video_path + ".tmp.mp4", video_path)
@@ -139,13 +262,13 @@ def remove_poster(video_path: str):
     _validate_path(video_path, VIDEO_EXTS)
     ext = Path(video_path).suffix.lower()
     if ext in MKV_COMPAT_EXTS:
-        result = subprocess.run(
-            ["mkvpropedit", "--", video_path, "--delete-attachment", "name:cover.jpg"],
-            capture_output=True, timeout=60,
-        )
+        cmd = ["mkvpropedit", video_path]
+        for mt in sorted(set(MIME_MAP.values())):
+            cmd += ["--delete-attachment", f"mime-type:{mt}"]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode != 0:
             stderr = result.stderr.decode(errors='ignore').lower()
-            if stderr and "not found" not in stderr and "no such" not in stderr:
+            if stderr and "no attachment matched" not in stderr:
                 raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
     elif ext in MP4_COMPAT_EXTS:
         pic_idx = _find_attached_pic(video_path)
@@ -173,18 +296,22 @@ def remove_poster(video_path: str):
         raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 
 
-def full_attach(video_path: str, poster_path: str) -> str:
+def full_attach(video_path: str, poster_path: str, metadata: dict = None) -> str:
     p = Path(video_path)
     ext = p.suffix.lower()
 
     if ext in MKV_COMPAT_EXTS:
         attach_poster_mkv(video_path, poster_path)
+        if metadata:
+            write_metadata_mkv(video_path, metadata)
         return video_path
 
     if ext in MP4_COMPAT_EXTS:
-        attach_poster_mp4(video_path, poster_path)
+        attach_poster_mp4(video_path, poster_path, metadata=metadata)
         return video_path
 
     mkv = to_mkv(video_path)
     attach_poster_mkv(mkv, poster_path)
+    if metadata:
+        write_metadata_mkv(mkv, metadata)
     return mkv

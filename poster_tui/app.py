@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import (
-    Button, Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static,
+    Button, Checkbox, Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static,
 )
 
 import config
@@ -74,6 +74,7 @@ class PosterTuiApp(App):
             with Horizontal(id="action_row"):
                 yield Button("Attach", id="attach_btn", disabled=True)
                 yield Button("Remove", id="remove_btn")
+                yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
             yield Label("Ready", id="status")
         yield Footer()
@@ -85,6 +86,7 @@ class PosterTuiApp(App):
         self.posters: list[dict] = []
         self.selected_poster: dict | None = None
         self.local_poster_path: str | None = None
+        self.current_media: dict | None = None
         self._yazi_chooser: str | None = None
 
     def on_mount(self):
@@ -290,6 +292,7 @@ class PosterTuiApp(App):
         if idx is None or idx >= len(self.results):
             return
         data = self.results[idx]
+        self.current_media = {"id": data["id"], "media_type": data["media_type"]}
         self.query_one("#status").update(f"Loading posters for {data['title']}...")
         self._load_posters(data["id"], data["media_type"])
 
@@ -371,6 +374,7 @@ class PosterTuiApp(App):
     @work(thread=True)
     def _do_attach(self):
         poster_path = None
+        metadata = None
         try:
             if self.local_poster_path:
                 poster_path = self.local_poster_path
@@ -379,6 +383,14 @@ class PosterTuiApp(App):
                 os.close(fd)
                 os.chmod(poster_path, 0o600)
                 tmdb.download_image(self.selected_poster["url"], poster_path)
+
+            if self.query_one("#meta_check").value and self.current_media:
+                self.call_from_thread(
+                    lambda: self.query_one("#status").update("Scraping metadata...")
+                )
+                metadata = tmdb.get_details(
+                    self.current_media["id"], self.current_media["media_type"]
+                )
 
             total = len(self.video_paths)
             ok = 0
@@ -390,7 +402,7 @@ class PosterTuiApp(App):
                     )
                 )
                 try:
-                    attacher.full_attach(path, poster_path)
+                    attacher.full_attach(path, poster_path, metadata=metadata)
                     ok += 1
                 except Exception:
                     fail += 1

@@ -30,9 +30,13 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
     _validate_url(url)
     session = _get_session()
     headers = {}
+    params = dict(params or {})
     if urlparse(url).hostname == "api.themoviedb.org":
         api_key = config.get("tmdb_api_key")
-        headers["Authorization"] = f"Bearer {api_key}"
+        if api_key and "." in api_key and len(api_key) > 40:
+            headers["Authorization"] = f"Bearer {api_key}"
+        else:
+            params["api_key"] = api_key
     resp = session.get(url, params=params, stream=stream, timeout=TIMEOUT,
                         allow_redirects=True, headers=headers)
     _validate_url(resp.url)
@@ -116,6 +120,47 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
 
     posters.sort(key=lambda x: (x["lang"] != "en", -x["width"]))
     return posters
+
+
+def get_details(media_id: int, media_type: str) -> dict:
+    if not config.get("tmdb_api_key"):
+        raise TMDBError("No API key set")
+
+    if media_type not in ("movie", "tv"):
+        raise TMDBError("Invalid media type")
+
+    details = _fetch(f"{BASE_URL}/{media_type}/{media_id}").json()
+    credits = _fetch(f"{BASE_URL}/{media_type}/{media_id}/credits").json()
+
+    metadata = {
+        "title": details.get("title") or details.get("name"),
+        "original_title": details.get("original_title") or details.get("original_name"),
+        "year": (details.get("release_date") or details.get("first_air_date") or "")[:4],
+        "overview": details.get("overview", ""),
+        "tagline": details.get("tagline", ""),
+        "genres": [g.get("name", "") for g in details.get("genres", []) if g.get("name")],
+        "rating": details.get("vote_average"),
+        "media_type": media_type,
+    }
+
+    if media_type == "movie":
+        crew = credits.get("crew", [])
+        metadata["runtime"] = details.get("runtime")
+        metadata["directors"] = sorted({c.get("name") for c in crew if c.get("job") == "Director"})
+        metadata["writers"] = sorted({c.get("name") for c in crew if c.get("job") in ("Writer", "Screenplay")})
+    else:
+        metadata["runtime"] = None
+        metadata["creators"] = [c.get("name") for c in details.get("created_by", []) if c.get("name")]
+        metadata["seasons"] = details.get("number_of_seasons")
+        metadata["episodes"] = details.get("number_of_episodes")
+
+    cast = []
+    for c in credits.get("cast", [])[:10]:
+        if c.get("name"):
+            cast.append({"name": c["name"], "character": c.get("character", "")})
+    metadata["cast"] = cast
+
+    return metadata
 
 
 VALID_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff"}
