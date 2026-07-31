@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from core import attacher
@@ -22,6 +22,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("mak-attatch")
     app.setOrganizationName("mak-attatch")
+    QGuiApplication.setDesktopFileName("mak-attatch")
     icon_path = Path(__file__).resolve().parent / "assets" / "logo.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))

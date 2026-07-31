@@ -2,7 +2,7 @@
 Name=mak-attatch
 Comment=Attach cover art to video files
 Exec=mak-attatch
-Icon=/usr/lib/mak-attatch/logo.png
+Icon=mak-attatch
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;

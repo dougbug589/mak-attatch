@@ -36,4 +36,5 @@ exec /usr/lib/$pkgname/.venv/bin/python /usr/lib/$pkgname/poster-tui "\$@"
 EOF
 
     install -Dm644 mak-attatch.desktop "$pkgdir/usr/share/applications/mak-attatch.desktop"
+    install -Dm644 assets/logo.png "$pkgdir/usr/share/pixmaps/mak-attatch.png"
 }

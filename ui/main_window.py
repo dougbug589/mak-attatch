@@ -2,7 +2,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot, Qt
+from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 from PyQt6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel,
@@ -13,6 +14,106 @@ from PyQt6.QtWidgets import (
 
 import config
 from core import attacher, parser, tmdb
+
+
+class PortalFilePicker(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._conn = QDBusConnection.sessionBus()
+        self._callback = None
+        self._timeout = None
+        self._multiple = False
+
+    def pick(self, callback, title="Select Image", start_dir="", multiple=False, filters=None):
+        self._callback = callback
+        self._multiple = multiple
+        if not self._conn.isConnected():
+            self._fallback(title, start_dir, filters)
+            return
+        iface = QDBusInterface(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.FileChooser",
+            self._conn,
+        )
+        token = "makattatch%d" % id(self)
+        opts = {
+            "handle_token": token,
+            "title": title,
+            "multiple": multiple,
+            "accept_label": "Use Image" if not multiple else "Use Videos",
+        }
+        if start_dir:
+            opts["current_folder"] = start_dir
+        reply = iface.call("OpenFile", "", title, opts)
+        if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
+            self._fallback(title, start_dir, filters)
+            return
+        req_path = reply.arguments()[0]
+        if not self._conn.connect(
+            "org.freedesktop.portal.Desktop",
+            req_path,
+            "org.freedesktop.portal.Request",
+            "Response",
+            self._on_response,
+        ):
+            self._fallback(title, start_dir, filters)
+            return
+        self._timeout = QTimer(self)
+        self._timeout.setSingleShot(True)
+        self._timeout.timeout.connect(lambda: self._finish(None))
+        self._timeout.start(60 * 60 * 1000)
+
+    def _fallback(self, title, start_dir, filters):
+        parent = self.parent() if isinstance(self.parent(), QWidget) else None
+        if self._multiple:
+            paths, _ = QFileDialog.getOpenFileNames(
+                parent, title, start_dir or "", filters or ""
+            )
+            self._finish(paths or None)
+        else:
+            path, _ = QFileDialog.getOpenFileName(
+                parent, title, start_dir or "", filters or ""
+            )
+            self._finish(path or None)
+
+    @pyqtSlot(int, "QVariantMap")
+    def _on_response(self, status, results):
+        if self._timeout:
+            self._timeout.stop()
+        if status != 0:
+            self._finish(None)
+            return
+        uris = results.get("uris")
+        if uris is None:
+            self._finish(None)
+            return
+        if hasattr(uris, "variant"):
+            uris = uris.variant()
+        if isinstance(uris, str):
+            uris = [uris]
+        if not uris:
+            self._finish(None)
+            return
+        paths = []
+        for uri in uris:
+            if hasattr(uri, "variant"):
+                uri = uri.variant()
+            qurl = QUrl(str(uri))
+            if qurl.isValid() and qurl.isLocalFile():
+                paths.append(qurl.toLocalFile())
+        if not paths:
+            self._finish(None)
+            return
+        self._finish(paths if self._multiple else paths[0])
+
+    def _finish(self, path):
+        cb, self._callback = self._callback, None
+        if self._timeout:
+            self._timeout.stop()
+            self._timeout = None
+        if cb:
+            cb(path)
 
 
 class ApiKeyDialog(QDialog):
@@ -185,6 +286,8 @@ class MainWindow(QMainWindow):
         self.current_posters = []
         self.selected_poster = None
         self.local_poster_path = None
+        self._portal_pick = PortalFilePicker(self)
+        self._last_image_dir = None
         self.current_media = None
 
         self.setAcceptDrops(True)
@@ -320,21 +423,28 @@ class MainWindow(QMainWindow):
 
     def _browse_video(self):
         last_dir = config.get("last_dir") or str(Path.home())
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Video",
+        self._portal_pick.pick(
+            self._on_video_picked,
+            "Select Video",
             last_dir,
-            "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
+            filters="Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
         )
+
+    def _on_video_picked(self, path):
         if path:
             self._load_video(path)
 
     def _browse_multi(self):
         last_dir = config.get("last_dir") or str(Path.home())
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select Videos",
+        self._portal_pick.pick(
+            self._on_videos_picked,
+            "Select Videos",
             last_dir,
-            "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
+            multiple=True,
+            filters="Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
         )
+
+    def _on_videos_picked(self, paths):
         if paths:
             self._load_videos(paths)
 
@@ -402,16 +512,22 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Selected poster: {poster['width']}x{poster['height']}")
 
     def _browse_image(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Image", "",
-            "Images (*.jpg *.jpeg *.png *.bmp *.webp *.gif *.tiff);;All Files (*)"
+        self._portal_pick.pick(
+            self._on_local_image_picked,
+            "Select Image",
+            self._last_image_dir or "",
+            filters="Images (*.jpg *.jpeg *.png *.bmp *.webp *.gif *.tiff *.svg *.ico);;All Files (*)",
         )
-        if path:
-            self.local_poster_path = path
-            self.selected_poster = None
-            self.attach_btn.setEnabled(True)
-            self.local_img_label.setText(Path(path).name)
-            self.status_label.setText(f"Local image: {Path(path).name}")
+
+    def _on_local_image_picked(self, path):
+        if not path or not os.path.exists(path):
+            return
+        self.local_poster_path = path
+        self._last_image_dir = str(Path(path).parent)
+        self.selected_poster = None
+        self.attach_btn.setEnabled(True)
+        self.local_img_label.setText(Path(path).name)
+        self.status_label.setText(f"Local image: {Path(path).name}")
 
     def _attach(self):
         if not self.video_paths:
