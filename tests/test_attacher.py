@@ -208,6 +208,12 @@ class TestParser(unittest.TestCase):
         self.assertEqual(p["episode"], 3)
 
 
+try:
+    from ui.main_window import BatchWorker
+except Exception:  # PyQt6 not installed (CI test runner)
+    BatchWorker = None
+
+
 class TestSharedCore(unittest.TestCase):
     def test_no_vendored_core_in_tui(self):
         tui_core = Path(__file__).resolve().parents[1] / "poster_tui" / "core"
@@ -222,6 +228,50 @@ class TestSharedCore(unittest.TestCase):
         except ImportError:
             self.skipTest("textual not installed")
         self.assertTrue(poster_tui.app.attacher.__name__.startswith("core"))
+
+
+class TestBatchWorker(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="mak-attatch-batch-test-"))
+        cls.img = cls.tmp / "poster.jpg"
+        _make_image(cls.img)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    @unittest.skipIf(BatchWorker is None, "PyQt6 not installed")
+    def test_batch_attach_all_succeed(self):
+        v1 = self.tmp / "one.mkv"
+        v2 = self.tmp / "two.mkv"
+        _make_video(v1)
+        _make_video(v2)
+        worker = BatchWorker([str(v1), str(v2)], str(self.img))
+        worker.run()
+        self.assertTrue(all(r["ok"] for r in worker.results), worker.results)
+        self.assertEqual(_pic_count(str(v1)), 1)
+        self.assertEqual(_pic_count(str(v2)), 1)
+
+    @unittest.skipIf(BatchWorker is None, "PyQt6 not installed")
+    def test_batch_cleans_up_temp_poster_after_use(self):
+        v1 = self.tmp / "three.mkv"
+        _make_video(v1)
+        temp_poster = self.tmp / "temp_poster.jpg"
+        shutil.copyfile(self.img, temp_poster)
+        worker = BatchWorker([str(v1)], str(temp_poster), cleanup_poster=True)
+        worker.run()
+        self.assertTrue(all(r["ok"] for r in worker.results), worker.results)
+        self.assertFalse(temp_poster.exists(), "temp poster should be cleaned up after use")
+
+    @unittest.skipIf(BatchWorker is None, "PyQt6 not installed")
+    def test_batch_keeps_local_poster(self):
+        v1 = self.tmp / "four.mkv"
+        _make_video(v1)
+        worker = BatchWorker([str(v1)], str(self.img), cleanup_poster=False)
+        worker.run()
+        self.assertTrue(all(r["ok"] for r in worker.results), worker.results)
+        self.assertTrue(self.img.exists(), "user-selected local poster must not be deleted")
 
 
 if __name__ == "__main__":
