@@ -274,5 +274,45 @@ class TestBatchWorker(unittest.TestCase):
         self.assertTrue(self.img.exists(), "user-selected local poster must not be deleted")
 
 
+class TestPosterTuiPosterGallery(unittest.TestCase):
+    def test_reloading_posters_does_not_collide_cell_ids(self):
+        try:
+            import asyncio
+            import types
+
+            from textual.widgets import ListItem
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        app = tui_app.PosterTuiApp()
+        app._show_image_preview = lambda *args, **kwargs: None
+        posters = [
+            {"width": 2000, "height": 3000, "lang": "en", "thumb_url": "", "url": ""},
+            {"width": 500, "height": 750, "lang": "fr", "thumb_url": "", "url": ""},
+        ]
+
+        async def run():
+            async with app.run_test():
+                app._on_posters_loaded(posters)
+                await asyncio.sleep(0.05)
+                ids1 = sorted(i.id for i in app.query_one("#poster_gallery").query(ListItem))
+                app._on_posters_loaded(posters)
+                await asyncio.sleep(0.05)
+                ids2 = sorted(i.id for i in app.query_one("#poster_gallery").query(ListItem))
+                self.assertEqual(len(ids1), 2)
+                self.assertEqual(len(ids2), 2, f"stale cells collided: {ids2}")
+                self.assertEqual(len(set(ids2)), 2, f"duplicate cell ids: {ids2}")
+                self.assertNotEqual(ids1, ids2, "regeneration did not change cell ids")
+
+                app.on_poster_selected(
+                    types.SimpleNamespace(item=types.SimpleNamespace(id=ids2[1]))
+                )
+                self.assertIs(app.selected_poster, posters[1])
+
+        asyncio.run(run())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

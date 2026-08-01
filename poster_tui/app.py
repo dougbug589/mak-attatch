@@ -92,6 +92,7 @@ class PosterTuiApp(App):
         self.local_poster_path: str | None = None
         self.current_media: dict | None = None
         self._yazi_chooser: str | None = None
+        self._poster_gen = 0
 
     def on_mount(self):
         if not config.get("tmdb_api_key"):
@@ -340,13 +341,15 @@ class PosterTuiApp(App):
         self.query_one("#poster_label").update(f"Posters ({len(posters)}):")
         gallery = self.query_one("#poster_gallery")
         gallery.clear()
+        self._poster_gen += 1
+        gen = self._poster_gen
         for idx, p in enumerate(posters):
             gallery.append(
                 ListItem(
                     Label(
                         f"{p['width']}x{p['height']} [{p.get('lang') or '??'}]",
                     ),
-                    id=f"cell_{idx}",
+                    id=f"cell_{gen}_{idx}",
                 )
             )
         self.query_one("#status").update("Posters: click to select")
@@ -357,7 +360,7 @@ class PosterTuiApp(App):
         if not item.id or not item.id.startswith("cell_"):
             return
         try:
-            idx = int(item.id.split("_")[1])
+            idx = int(item.id.split("_")[-1])
         except (IndexError, ValueError):
             return
         if 0 <= idx < len(self.posters):
