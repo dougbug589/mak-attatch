@@ -1,5 +1,6 @@
 import os
 import tempfile
+import uuid
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot, Qt
@@ -23,8 +24,13 @@ class PortalFilePicker(QObject):
         self._callback = None
         self._timeout = None
         self._multiple = False
+        self._req_path = None
+        self._active = False
 
     def pick(self, callback, title="Select Image", start_dir="", multiple=False, filters=None):
+        if self._active:
+            return
+        self._active = True
         self._callback = callback
         self._multiple = multiple
         if not self._conn.isConnected():
@@ -36,7 +42,7 @@ class PortalFilePicker(QObject):
             "org.freedesktop.portal.FileChooser",
             self._conn,
         )
-        token = "makattatch%d" % id(self)
+        token = "makattatch%s" % uuid.uuid4().hex
         opts = {
             "handle_token": token,
             "title": title,
@@ -44,15 +50,15 @@ class PortalFilePicker(QObject):
             "accept_label": "Use Image" if not multiple else "Use Videos",
         }
         if start_dir:
-            opts["current_folder"] = start_dir
+            opts["current_folder"] = QUrl.fromLocalFile(start_dir).toString()
         reply = iface.call("OpenFile", "", title, opts)
         if reply.type() != QDBusMessage.MessageType.ReplyMessage or not reply.arguments():
             self._fallback(title, start_dir, filters)
             return
-        req_path = reply.arguments()[0]
+        self._req_path = reply.arguments()[0]
         if not self._conn.connect(
             "org.freedesktop.portal.Desktop",
-            req_path,
+            self._req_path,
             "org.freedesktop.portal.Request",
             "Response",
             self._on_response,
@@ -79,6 +85,8 @@ class PortalFilePicker(QObject):
 
     @pyqtSlot(int, "QVariantMap")
     def _on_response(self, status, results):
+        if not self._active:
+            return
         if self._timeout:
             self._timeout.stop()
         if status != 0:
@@ -112,6 +120,16 @@ class PortalFilePicker(QObject):
         if self._timeout:
             self._timeout.stop()
             self._timeout = None
+        if self._active and self._conn.isConnected() and self._req_path:
+            self._conn.disconnect(
+                "org.freedesktop.portal.Desktop",
+                self._req_path,
+                "org.freedesktop.portal.Request",
+                "Response",
+                self._on_response,
+            )
+        self._req_path = None
+        self._active = False
         if cb:
             cb(path)
 
