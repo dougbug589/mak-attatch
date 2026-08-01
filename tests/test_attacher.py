@@ -217,7 +217,10 @@ class TestSharedCore(unittest.TestCase):
         )
 
     def test_tui_imports_shared_core(self):
-        import poster_tui.app
+        try:
+            import poster_tui.app
+        except ImportError:
+            self.skipTest("textual not installed")
         self.assertTrue(poster_tui.app.attacher.__name__.startswith("core"))
 
 

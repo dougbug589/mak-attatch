@@ -1,6 +1,6 @@
 # Maintainer: dougbug589 <180086805+dougbug589@users.noreply.github.com>
 pkgname=mak-attatch
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Attach TMDB cover art posters to video files"
 arch=('x86_64' 'aarch64')
