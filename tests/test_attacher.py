@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core import attacher, parser, tmdb
 
@@ -310,6 +311,136 @@ class TestPosterTuiPosterGallery(unittest.TestCase):
                     types.SimpleNamespace(item=types.SimpleNamespace(id=ids2[1]))
                 )
                 self.assertIs(app.selected_poster, posters[1])
+
+        asyncio.run(run())
+
+
+class TestDetailsForPath(unittest.TestCase):
+    def test_uses_explicit_media(self):
+        with patch("core.tmdb.get_details", return_value={"title": "X"}) as gd, \
+                patch("core.tmdb.search", return_value=[{"id": 1, "media_type": "movie"}]) as sr:
+            meta = tmdb.details_for_path("/a/b/Movie (2000).mkv", {"id": 7, "media_type": "tv"})
+        self.assertEqual(meta, {"title": "X"})
+        gd.assert_called_once_with(7, "tv")
+        sr.assert_not_called()
+
+    def test_auto_searches_by_filename(self):
+        with patch("core.tmdb.get_details",
+                   side_effect=lambda i, t: {"id": i, "type": t}) as gd, \
+                patch("core.tmdb.search",
+                      return_value=[{"id": 42, "media_type": "movie"}]) as sr:
+            meta = tmdb.details_for_path("/a/b/The Matrix (1999).mkv")
+        sr.assert_called_once()
+        self.assertIn("matrix", sr.call_args[0][0].lower())
+        gd.assert_called_once_with(42, "movie")
+        self.assertEqual(meta, {"id": 42, "type": "movie"})
+
+    def test_no_match_raises(self):
+        with patch("core.tmdb.search", return_value=[]):
+            with self.assertRaises(tmdb.TMDBError):
+                tmdb.details_for_path("/a/b/Unknown (1999).mkv")
+
+
+class TestMetadataOnly(unittest.TestCase):
+    @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
+    def test_write_metadata_without_poster(self):
+        d = Path(tempfile.mkdtemp(prefix="mak-metadata-only-"))
+        try:
+            v = d / "movie.mkv"
+            _make_video(v)
+            meta = {"title": "Test Movie", "year": 2001, "overview": "desc",
+                    "genres": ["Drama"], "rating": 7.5, "directors": ["A"], "cast": []}
+            attacher.write_metadata(str(v), meta)
+            out = subprocess.run(["mkvinfo", str(v)], capture_output=True).stdout.decode()
+            self.assertIn("Test Movie", out)
+            self.assertIsNone(attacher._find_attached_pic(str(v)))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestPosterTuiFileSelection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="mak-tui-sel-"))
+        cls.v1 = str(cls.tmp / "One (2001).mkv")
+        cls.v2 = str(cls.tmp / "Two (2002).mkv")
+        _make_video(Path(cls.v1))
+        _make_video(Path(cls.v2))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_selection_semantics(self):
+        try:
+            import asyncio
+            import types
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test():
+                    app._add_video_path(self.v1)
+                    app._add_video_path(self.v2)
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v1, self.v2])
+
+                    app.query_one("#file_list").index = 0
+                    app.action_toggle_file_selection()
+                    self.assertEqual(app._targets(), [self.v1])
+                    app.action_toggle_file_selection()
+                    self.assertEqual(app._targets(), [self.v1, self.v2])
+
+                    app.on_file_selected(
+                        types.SimpleNamespace(list_view=types.SimpleNamespace(index=1))
+                    )
+                    self.assertEqual(app._targets(), [self.v2])
+                    app.action_clear_selection()
+                    self.assertEqual(app._targets(), [self.v1, self.v2])
+
+                    app.query_one("#file_cb_0").value = True
+                    await asyncio.sleep(0.05)
+                    self.assertEqual(app._targets(), [self.v1])
+                    app.query_one("#file_cb_0").value = False
+                    await asyncio.sleep(0.05)
+                    self.assertEqual(app._targets(), [self.v1, self.v2])
+
+        asyncio.run(run())
+
+    @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
+    def test_scrape_metadata_only_flow(self):
+        try:
+            import asyncio
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        meta = {"title": "Scraped Title", "year": 2005, "overview": "o",
+                "genres": ["Drama"], "rating": 8.0, "directors": ["D"], "cast": []}
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]), \
+                    patch.object(tui_app.tmdb, "details_for_path", return_value=meta):
+                async with app.run_test():
+                    app._add_video_path(self.v1)
+                    app._add_video_path(self.v2)
+                    await asyncio.sleep(0.1)
+                    app.on_scrape_metadata()
+                    for _ in range(100):
+                        if str(app.query_one("#status").content).startswith("Metadata written to 2"):
+                            break
+                        await asyncio.sleep(0.05)
+                    status = str(app.query_one("#status").content)
+                    self.assertTrue(status.startswith("Metadata written to 2"), status)
+                    out = subprocess.run(["mkvinfo", self.v1], capture_output=True).stdout.decode()
+                    self.assertIn("Scraped Title", out)
+                    self.assertIsNone(attacher._find_attached_pic(self.v1))
 
         asyncio.run(run())
 

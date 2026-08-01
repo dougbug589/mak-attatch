@@ -44,7 +44,8 @@ class PosterTuiApp(App):
         Binding("ctrl+l", "focus_left_panel", "Left (Search)"),
         Binding("ctrl+m", "focus_mid_panel", "Mid (Posters)"),
         Binding("ctrl+r", "focus_right_panel", "Right (Files)"),
-        Binding("d", "clear_active", "Clear Active"),
+        Binding("space", "toggle_file_selection", "Toggle Selected"),
+        Binding("d", "clear_selection", "Clear Selection"),
     ]
 
     TITLE = "mak-attatch TUI"
@@ -77,6 +78,7 @@ class PosterTuiApp(App):
                 yield Button("Attach", id="attach_btn", disabled=True)
                 yield Button("Remove", id="remove_btn")
                 yield Button("Rm Metadata", id="remove_meta_btn")
+                yield Button("Scrape Metadata", id="scrape_meta_btn")
                 yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
             yield Label("Ready", id="status")
@@ -85,7 +87,7 @@ class PosterTuiApp(App):
     def __init__(self):
         super().__init__()
         self.video_paths: list[str] = []
-        self.active_video_path: str | None = None
+        self.selected_files: set[str] = set()
         self.results: list[dict] = []
         self.posters: list[dict] = []
         self.selected_poster: dict | None = None
@@ -183,7 +185,9 @@ class PosterTuiApp(App):
             self.query_one("#status").update(f"Already added: {Path(p).name}")
             return
         self.video_paths.append(p)
-        self.query_one("#file_list").append(ListItem(Label(Path(p).name)))
+        idx = len(self.video_paths) - 1
+        row = ListItem(Checkbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
+        self.query_one("#file_list").append(row)
         self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
         config.set("last_dir", str(Path(p).parent))
         if len(self.video_paths) == 1:
@@ -210,35 +214,87 @@ class PosterTuiApp(App):
     @on(Button.Pressed, "#clear_btn")
     def on_clear_files(self):
         self.video_paths.clear()
-        self.active_video_path = None
+        self.selected_files.clear()
         self.query_one("#file_list").clear()
         self.query_one("#files_label").update("Video Files:")
         self.query_one("#attach_btn").disabled = True
         self.query_one("#status").update("File list cleared")
+
+    def _file_row(self, idx: int) -> ListItem:
+        return self.query_one(f"#file_row_{idx}")
+
+    def _set_file_selected(self, idx: int, selected: bool):
+        self._file_row(idx).query_one(Checkbox).value = selected
+
+    def _selection_summary(self) -> str:
+        n = len(self.selected_files)
+        if n == 0:
+            return f"operations apply to all {len(self.video_paths)} file(s)"
+        if n == 1:
+            return f"selected: {Path(next(iter(self.selected_files))).name}"
+        return f"{n} file(s) selected"
+
+    def _update_selection_status(self):
+        self.query_one("#status").update(self._selection_summary() + " (d to clear)")
+
+    @on(Checkbox.Changed)
+    def on_file_checkbox_changed(self, event: Checkbox.Changed):
+        checkbox = event.control
+        if not checkbox.id or not checkbox.id.startswith("file_cb_"):
+            return
+        try:
+            idx = int(checkbox.id.split("_")[-1])
+        except (IndexError, ValueError):
+            return
+        if 0 <= idx < len(self.video_paths):
+            if event.value:
+                self.selected_files.add(self.video_paths[idx])
+            else:
+                self.selected_files.discard(self.video_paths[idx])
+            self._update_selection_status()
+
+    @on(ListView.Highlighted, "#file_list")
+    def on_file_highlighted(self, event: ListView.Highlighted):
+        idx = event.list_view.index
+        if idx is None or idx >= len(self.video_paths):
+            return
+        parsed = parser.parse_filename(self.video_paths[idx])
+        self.query_one("#search_input").value = parser.build_search_query(parsed)
 
     @on(ListView.Selected, "#file_list")
     def on_file_selected(self, event: ListView.Selected):
         idx = event.list_view.index
         if idx is None or idx >= len(self.video_paths):
             return
-        path = self.video_paths[idx]
-        self.active_video_path = path
-        parsed = parser.parse_filename(path)
-        self.query_one("#search_input").value = parser.build_search_query(parsed)
-        self.query_one("#status").update(
-            f"Active: {Path(path).name} — attach/remove apply to this file only (d to clear)"
-        )
+        self.selected_files = {self.video_paths[idx]}
+        for i in range(len(self.video_paths)):
+            self._set_file_selected(i, i == idx)
+        self._update_selection_status()
 
-    def action_clear_active(self):
-        self.active_video_path = None
+    def action_toggle_file_selection(self):
+        idx = self.query_one("#file_list").index
+        if idx is None or idx >= len(self.video_paths):
+            return
+        path = self.video_paths[idx]
+        if path in self.selected_files:
+            self.selected_files.discard(path)
+        else:
+            self.selected_files.add(path)
+        self._set_file_selected(idx, path in self.selected_files)
+        self._update_selection_status()
+
+    def action_clear_selection(self):
+        self.selected_files.clear()
+        for i in range(len(self.video_paths)):
+            self._set_file_selected(i, False)
         self.query_one("#file_list").index = None
         self.query_one("#status").update(
-            f"Active file cleared — operations apply to all {len(self.video_paths)} files"
+            f"Selection cleared — operations apply to all {len(self.video_paths)} files"
         )
 
     def _targets(self) -> list[str]:
-        if self.active_video_path:
-            return [self.active_video_path]
+        if self.selected_files:
+            return sorted(self.selected_files)
         return self.video_paths
 
     @on(Button.Pressed, "#local_img_btn")
@@ -502,6 +558,40 @@ class PosterTuiApp(App):
             except Exception:
                 fail += 1
         msg = f"Removed metadata from {ok} file(s)" if fail == 0 else f"Removed metadata: {ok}, Failed: {fail}"
+        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+
+    @on(Button.Pressed, "#scrape_meta_btn")
+    def on_scrape_metadata(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
+        self._do_scrape_metadata()
+
+    @work(thread=True)
+    def _do_scrape_metadata(self):
+        targets = self._targets()
+        total = len(targets)
+        ok = 0
+        fail = 0
+        errors = []
+        for i, path in enumerate(targets):
+            self.call_from_thread(
+                lambda i=i, p=path: self.query_one("#status").update(
+                    f"Scraping metadata {i+1}/{total}: {Path(p).name}"
+                )
+            )
+            try:
+                metadata = tmdb.details_for_path(path, self.current_media)
+                attacher.write_metadata(path, metadata)
+                ok += 1
+            except Exception as e:
+                fail += 1
+                errors.append(f"{Path(path).name}: {e}")
+        if fail == 0:
+            msg = f"Metadata written to {ok} file(s)"
+        else:
+            detail = " | ".join(errors)[:2000]
+            msg = f"Metadata: {ok} ok, {fail} failed — {detail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     @on(Button.Pressed, "#settings_btn")

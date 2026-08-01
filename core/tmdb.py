@@ -1,4 +1,5 @@
 import requests
+from pathlib import Path
 from urllib.parse import urlparse
 import config
 
@@ -161,6 +162,25 @@ def get_details(media_id: int, media_type: str) -> dict:
     metadata["cast"] = cast
 
     return metadata
+
+
+def details_for_path(path: str, current_media: dict = None) -> dict:
+    """Return TMDB details for a video path.
+
+    Prefers an explicit media selection (dict with "id" and "media_type").
+    Otherwise auto-searches the file's filename and uses the top result.
+    Raises TMDBError when no match is found.
+    """
+    if current_media:
+        return get_details(current_media["id"], current_media["media_type"])
+    from core import parser
+
+    parsed = parser.parse_filename(path)
+    results = search(parser.build_search_query(parsed))
+    if not results:
+        raise TMDBError(f"No TMDB match for {Path(path).name}")
+    top = results[0]
+    return get_details(top["id"], top["media_type"])
 
 
 VALID_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff"}
