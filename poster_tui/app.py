@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,6 +44,7 @@ class PosterTuiApp(App):
         Binding("ctrl+l", "focus_left_panel", "Left (Search)"),
         Binding("ctrl+m", "focus_mid_panel", "Mid (Posters)"),
         Binding("ctrl+r", "focus_right_panel", "Right (Files)"),
+        Binding("d", "clear_active", "Clear Active"),
     ]
 
     TITLE = "mak-attatch TUI"
@@ -83,6 +85,7 @@ class PosterTuiApp(App):
     def __init__(self):
         super().__init__()
         self.video_paths: list[str] = []
+        self.active_video_path: str | None = None
         self.results: list[dict] = []
         self.posters: list[dict] = []
         self.selected_poster: dict | None = None
@@ -206,10 +209,36 @@ class PosterTuiApp(App):
     @on(Button.Pressed, "#clear_btn")
     def on_clear_files(self):
         self.video_paths.clear()
+        self.active_video_path = None
         self.query_one("#file_list").clear()
         self.query_one("#files_label").update("Video Files:")
         self.query_one("#attach_btn").disabled = True
         self.query_one("#status").update("File list cleared")
+
+    @on(ListView.Selected, "#file_list")
+    def on_file_selected(self, event: ListView.Selected):
+        idx = event.list_view.index
+        if idx is None or idx >= len(self.video_paths):
+            return
+        path = self.video_paths[idx]
+        self.active_video_path = path
+        parsed = parser.parse_filename(path)
+        self.query_one("#search_input").value = parser.build_search_query(parsed)
+        self.query_one("#status").update(
+            f"Active: {Path(path).name} — attach/remove apply to this file only (d to clear)"
+        )
+
+    def action_clear_active(self):
+        self.active_video_path = None
+        self.query_one("#file_list").index = None
+        self.query_one("#status").update(
+            f"Active file cleared — operations apply to all {len(self.video_paths)} files"
+        )
+
+    def _targets(self) -> list[str]:
+        if self.active_video_path:
+            return [self.active_video_path]
+        return self.video_paths
 
     @on(Button.Pressed, "#local_img_btn")
     def on_local_image(self):
@@ -247,7 +276,8 @@ class PosterTuiApp(App):
                     if ret == 0:
                         break
                 if info:
-                    print(f"\n{info}", flush=True)
+                    safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
+                    print(f"\n{safe}", flush=True)
                 print("\nPress Enter to return...", flush=True)
                 input()
         except FileNotFoundError:
@@ -393,10 +423,10 @@ class PosterTuiApp(App):
                     self.current_media["id"], self.current_media["media_type"]
                 )
 
-            total = len(self.video_paths)
+            total = len(self._targets())
             ok = 0
             fail = 0
-            for i, path in enumerate(self.video_paths):
+            for i, path in enumerate(self._targets()):
                 self.call_from_thread(
                     lambda i=i, p=path: self.query_one("#status").update(
                         f"Attaching {i+1}/{total}: {Path(p).name}"
@@ -428,10 +458,10 @@ class PosterTuiApp(App):
 
     @work(thread=True)
     def _do_remove(self):
-        total = len(self.video_paths)
+        total = len(self._targets())
         ok = 0
         fail = 0
-        for i, path in enumerate(self.video_paths):
+        for i, path in enumerate(self._targets()):
             self.call_from_thread(
                 lambda i=i, p=path: self.query_one("#status").update(
                     f"Removing {i+1}/{total}: {Path(p).name}"
@@ -454,10 +484,10 @@ class PosterTuiApp(App):
 
     @work(thread=True)
     def _do_remove_metadata(self):
-        total = len(self.video_paths)
+        total = len(self._targets())
         ok = 0
         fail = 0
-        for i, path in enumerate(self.video_paths):
+        for i, path in enumerate(self._targets()):
             self.call_from_thread(
                 lambda i=i, p=path: self.query_one("#status").update(
                     f"Removing metadata {i+1}/{total}: {Path(p).name}"

@@ -208,15 +208,17 @@ class TestParser(unittest.TestCase):
         self.assertEqual(p["episode"], 3)
 
 
-class TestMetadataXml(unittest.TestCase):
-    def test_mirror_parity(self):
-        import poster_tui.core.attacher as tui
-        for fn in ("full_attach", "attach_poster_mkv", "attach_poster_mp4",
-                   "remove_poster", "remove_metadata", "write_metadata",
-                   "write_metadata_mkv", "write_metadata_mp4",
-                   "build_mkv_tags_xml"):
-            self.assertTrue(hasattr(tui, fn), fn)
-            self.assertTrue(hasattr(attacher, fn), fn)
+class TestSharedCore(unittest.TestCase):
+    def test_no_vendored_core_in_tui(self):
+        tui_core = Path(__file__).resolve().parents[1] / "poster_tui" / "core"
+        self.assertFalse(
+            tui_core.exists(),
+            "poster_tui/ must not carry a vendored core copy; TUI uses the shared core/",
+        )
+
+    def test_tui_imports_shared_core(self):
+        import poster_tui.app
+        self.assertTrue(poster_tui.app.attacher.__name__.startswith("core"))
 
 
 if __name__ == "__main__":

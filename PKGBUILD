@@ -14,7 +14,7 @@ sha256sums=('82fa7f7ad969d59ac743ad2183c6a75f910e4b250c20ff43155cc3bb88afc6b5')
 package() {
     cd "$srcdir/mak-attatch-$pkgver"
     install -Ddm755 "$pkgdir/usr/lib/$pkgname"
-    cp -r core ui poster_tui config.py main.py requirements.txt assets "$pkgdir/usr/lib/$pkgname/"
+    cp -r core ui poster_tui poster-tui config.py main.py requirements.txt assets "$pkgdir/usr/lib/$pkgname/"
 
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<EOF
 #!/bin/sh

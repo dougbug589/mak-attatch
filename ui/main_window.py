@@ -43,11 +43,17 @@ class PortalFilePicker(QObject):
             self._conn,
         )
         token = "makattatch%s" % uuid.uuid4().hex
+        if multiple:
+            accept = "Use Videos"
+        elif "video" in title.lower():
+            accept = "Use Video"
+        else:
+            accept = "Use Image"
         opts = {
             "handle_token": token,
             "title": title,
             "multiple": multiple,
-            "accept_label": "Use Image" if not multiple else "Use Videos",
+            "accept_label": accept,
         }
         if start_dir:
             opts["current_folder"] = QUrl.fromLocalFile(start_dir).toString()
@@ -83,7 +89,7 @@ class PortalFilePicker(QObject):
             )
             self._finish(path or None)
 
-    @pyqtSlot(int, "QVariantMap")
+    @pyqtSlot("uint", "QVariantMap")
     def _on_response(self, status, results):
         if not self._active:
             return
@@ -301,6 +307,7 @@ class MainWindow(QMainWindow):
 
         self.video_path = ""
         self.video_paths = []
+        self.active_video_path = None
         self.current_posters = []
         self.selected_poster = None
         self.local_poster_path = None
@@ -348,6 +355,8 @@ class MainWindow(QMainWindow):
 
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(80)
+        self.file_list.itemClicked.connect(self._on_file_clicked)
+        self.file_list.itemSelectionChanged.connect(self._on_file_selection_changed)
         self.file_list.hide()
         lay.addWidget(self.file_list)
 
@@ -500,7 +509,7 @@ class MainWindow(QMainWindow):
     def _on_search_error(self, err):
         self.search_btn.setEnabled(True)
         self.search_btn.setText("Search")
-        self.status_label.setText("Search failed")
+        self.status_label.setText(f"Search failed: {err}")
 
     def _on_result_selected(self, item: QListWidgetItem):
         data = item.data(Qt.ItemDataRole.UserRole)
@@ -548,7 +557,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Local image: {Path(path).name}")
 
     def _attach(self):
-        if not self.video_paths:
+        targets = self._active_targets()
+        if not targets:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
         if not self.selected_poster and not self.local_poster_path:
@@ -562,6 +572,7 @@ class MainWindow(QMainWindow):
 
         poster_path = None
         metadata = None
+        used_batch = False
         try:
             if self.local_poster_path:
                 poster_path = self.local_poster_path
@@ -577,15 +588,32 @@ class MainWindow(QMainWindow):
                     self.current_media["id"], self.current_media["media_type"]
                 )
 
-            if len(self.video_paths) == 1:
-                out = attacher.full_attach(self.video_paths[0], poster_path, metadata=metadata)
-                if out != self.video_paths[0]:
-                    self.video_path = out
-                    self.video_paths = [out]
-                    self.file_label.setText(out)
-                self.status_label.setText("Poster attached successfully!")
-                QMessageBox.information(self, "Done", "Poster attached successfully!")
+            if len(targets) == 1:
+                target = targets[0]
+                out = attacher.full_attach(target, poster_path, metadata=metadata)
+                if out != target:
+                    if self.active_video_path == target:
+                        self.active_video_path = out
+                    if self.video_path == target:
+                        self.video_path = out
+                    for i, p in enumerate(self.video_paths):
+                        if p == target:
+                            self.video_paths[i] = out
+                    if len(self.video_paths) == 1:
+                        self.file_label.setText(out)
+                    else:
+                        for i in range(self.file_list.count()):
+                            it = self.file_list.item(i)
+                            if it is not None and it.data(Qt.ItemDataRole.UserRole) == target:
+                                it.setData(Qt.ItemDataRole.UserRole, out)
+                                it.setText(Path(out).name)
+                                break
+                    target = out
+                name = Path(target).name
+                self.status_label.setText(f"Poster attached to {name}!")
+                QMessageBox.information(self, "Done", f"Poster attached to {name}!")
             else:
+                used_batch = True
                 self._batch_attach(poster_path, metadata)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
@@ -593,7 +621,7 @@ class MainWindow(QMainWindow):
         finally:
             if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
                 os.unlink(poster_path)
-            if len(self.video_paths) <= 1:
+            if not used_batch:
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
 
@@ -625,11 +653,12 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Batch: {ok} succeeded, {fail} failed")
 
     def _remove(self):
-        if not self.video_paths:
+        targets = self._active_targets()
+        if not targets:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
 
-        count = len(self.video_paths)
+        count = len(targets)
         msg = f"Remove poster from this video?" if count == 1 else f"Remove poster from {count} files?"
         reply = QMessageBox.question(
             self, "Confirm", msg,
@@ -640,9 +669,10 @@ class MainWindow(QMainWindow):
 
         if count == 1:
             try:
-                attacher.remove_poster(self.video_paths[0])
-                self.status_label.setText("Poster removed")
-                QMessageBox.information(self, "Done", "Poster removed!")
+                attacher.remove_poster(targets[0])
+                name = Path(targets[0]).name
+                self.status_label.setText(f"Poster removed from {name}")
+                QMessageBox.information(self, "Done", f"Poster removed from {name}!")
             except Exception as e:
                 self.status_label.setText("Error removing poster")
                 QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
@@ -677,7 +707,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Settings saved")
 
     def _remove_metadata(self):
-        videos = self.video_paths or ([self.video_path] if self.video_path else [])
+        videos = self._active_targets()
         if not videos:
             QMessageBox.warning(self, "No Files", "Select a video file first.")
             return
@@ -723,9 +753,35 @@ class MainWindow(QMainWindow):
         else:
             self._load_videos(videos)
 
+    def _active_targets(self):
+        if self.active_video_path:
+            return [self.active_video_path]
+        return self.video_paths or ([self.video_path] if self.video_path else [])
+
+    def _on_file_clicked(self, item: QListWidgetItem):
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if not path:
+            return
+        parsed = parser.parse_filename(path)
+        self.search_input.setText(parser.build_search_query(parsed))
+
+    def _on_file_selection_changed(self):
+        selected = self.file_list.selectedItems()
+        active = selected[0].data(Qt.ItemDataRole.UserRole) if selected else None
+        if active == self.active_video_path:
+            return
+        self.active_video_path = active
+        if active:
+            self.status_label.setText(
+                f"Active: {Path(active).name} — attach/remove apply to this file only")
+        elif self.video_paths:
+            self.status_label.setText(
+                f"Active file cleared — operations apply to all {len(self.video_paths)} files")
+
     def _load_video(self, path):
         self.video_path = path
         self.video_paths = [path]
+        self.active_video_path = None
         self.file_label.setText(path)
         self.file_list.hide()
         self.file_list.clear()
@@ -737,10 +793,13 @@ class MainWindow(QMainWindow):
     def _load_videos(self, paths):
         self.video_path = paths[0]
         self.video_paths = paths
+        self.active_video_path = None
         self.file_label.setText(f"{len(paths)} files selected")
         self.file_list.clear()
         for p in paths:
-            self.file_list.addItem(Path(p).name)
+            item = QListWidgetItem(Path(p).name)
+            item.setData(Qt.ItemDataRole.UserRole, p)
+            self.file_list.addItem(item)
         self.file_list.show()
         config.set("last_dir", str(Path(paths[0]).parent))
         parsed = parser.parse_filename(paths[0])
