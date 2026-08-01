@@ -26,7 +26,7 @@ def parse_filename(filepath: str) -> dict:
                 result["type"] = "episode"
                 result["season"] = info.get("season")
                 result["episode"] = info.get("episode")
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     if not result["year"]:

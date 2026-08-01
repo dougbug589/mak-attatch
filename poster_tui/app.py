@@ -282,7 +282,7 @@ class PosterTuiApp(App):
                 input()
         except FileNotFoundError:
             pass
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
     @on(Input.Submitted, "#search_input")
@@ -383,7 +383,7 @@ class PosterTuiApp(App):
                 f.write(resp.content)
             os.chmod(tmp, 0o600)
             self.call_from_thread(self._preview_native, tmp, info)
-        except Exception:
+        except Exception:  # nosec B110
             pass
         finally:
             if tmp:

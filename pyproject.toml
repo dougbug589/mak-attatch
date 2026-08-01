@@ -1,0 +1,9 @@
+[tool.bandit]
+# Shelling out to media tools (ffmpeg/mkvpropedit/ffprobe/yazi/chafa) is this
+# app's core function. Binaries are validated up front by
+# core.attacher.check_tools() and always called with argument lists, never
+# shell=True. xml.etree.ElementTree is used only to *generate* metadata XML
+# for mkvpropedit; it never parses untrusted input. These are intentional,
+# so the subprocess/XML heuristics are excluded repo-wide. Silent-exception
+# sites (B110) are annotated inline where they are deliberate.
+skips = ["B404", "B603", "B607", "B405"]

@@ -21,7 +21,7 @@ class ImageLoader(QThread):
             pixmap = QPixmap()
             pixmap.loadFromData(resp.content)
             self.loaded.emit(self.index, pixmap)
-        except Exception:
+        except Exception:  # nosec B110
             pass
 
 

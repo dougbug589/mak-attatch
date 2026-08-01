@@ -292,7 +292,7 @@ class PosterPreviewDialog(QDialog):
                 pixmap = QPixmap()
                 pixmap.loadFromData(resp.content)
                 self.loaded.emit(pixmap)
-            except Exception:
+            except Exception:  # nosec B110
                 pass
 
 
