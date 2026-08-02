@@ -168,9 +168,7 @@ class PosterTuiApp(App):
                 timeout=300,
             )
             if proc.returncode == 0 and os.path.exists(chooser):
-                path = Path(chooser).read_text().strip()
-                if path:
-                    return path
+                return Path(chooser).read_text().strip()
             return None
         finally:
             try:
@@ -182,12 +180,18 @@ class PosterTuiApp(App):
     def on_browse(self):
         try:
             with self.suspend():
-                path = self._yazi_pick()
+                text = self._yazi_pick()
         except FileNotFoundError:
             self.query_one("#status").update("yazi not found. Install: sudo pacman -S yazi")
             return
-        if path:
-            self._add_video_path(path)
+        if not text:
+            return
+        valid, invalid = self._expand_paths(text)
+        for p in valid:
+            self._add_video_path(p)
+        if invalid:
+            names = ", ".join(Path(p).name for p in invalid[:3])
+            self.query_one("#status").update(f"Not found: {names}")
 
     def _add_video_path(self, path: str):
         if not os.path.isfile(path):
@@ -342,6 +346,7 @@ class PosterTuiApp(App):
             return
         if not path:
             return
+        path = path.splitlines()[0].strip()
         ext = Path(path).suffix.lower()
         if ext not in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
             self.query_one("#status").update("Not a supported image format")

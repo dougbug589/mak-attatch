@@ -598,6 +598,30 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_yazi_multi_select_adds_all_paths(self):
+        try:
+            import asyncio
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        async def run():
+            from contextlib import nullcontext
+
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test() as pilot:
+                    app._yazi_pick = lambda: f"{self.v1}\n{self.v2}"
+                    with patch.object(app, "suspend", return_value=nullcontext()):
+                        app.on_browse()
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(len(app.video_paths), 2)
+                    self.assertIn(self.v1, app.video_paths)
+                    self.assertIn(self.v2, app.video_paths)
+
+        asyncio.run(run())
+
     @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
     def test_scrape_metadata_only_flow(self):
         try:
