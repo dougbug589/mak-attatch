@@ -16,6 +16,25 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/github/languages/top/dougbug589/mak-attatch?style=flat-square&color=4f46e5&logo=python&logoColor=white" alt="language">
+  <img src="https://img.shields.io/github/repo-size/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="repo size">
+  <img src="https://img.shields.io/github/last-commit/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="last commit">
+  <img src="https://img.shields.io/github/contributors/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="contributors">
+  <img src="https://img.shields.io/github/issues/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="issues">
+  <img src="https://img.shields.io/github/downloads/dougbug589/mak-attatch/total?style=flat-square&color=06b6d4" alt="downloads">
+  <img src="https://img.shields.io/github/release-date/dougbug589/mak-attatch?style=flat-square&color=06b6d4" alt="release date">
+  <img src="https://img.shields.io/badge/built%20with-love-ef4444?style=flat-square" alt="built with love">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/MKV-native-7c3aed?style=flat-square" alt="mkv">
+  <img src="https://img.shields.io/badge/MP4%20%26%20MOV-ffmpeg-06b6d4?style=flat-square" alt="mp4/mov">
+  <img src="https://img.shields.io/badge/Linux-supported-22c55e?style=flat-square&logo=linux&logoColor=white" alt="linux">
+  <img src="https://img.shields.io/badge/Windows-coming%20soon-94a3b8?style=flat-square&logo=windows&logoColor=white" alt="windows">
+  <img src="https://img.shields.io/badge/Android-coming%20soon-94a3b8?style=flat-square&logo=android&logoColor=white" alt="android">
+</p>
+
+<p align="center">
   Search <b>TMDB</b> · Preview posters · Attach cover art to your video files — <b>MKV</b> native, <b>MP4 / MOV / AVI</b> converted automatically.
 </p>
 
