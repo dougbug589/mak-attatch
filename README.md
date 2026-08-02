@@ -20,8 +20,7 @@
   <img src="https://img.shields.io/github/contributors/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="contributors">
   <img src="https://img.shields.io/github/issues/dougbug589/mak-attatch?style=flat-square&color=7c3aed" alt="issues">
   <img src="https://img.shields.io/github/downloads/dougbug589/mak-attatch/total?style=flat-square&color=06b6d4" alt="downloads">
-  <img src="https://img.shields.io/github/release-date/dougbug589/mak-attatch?style=flat-square&color=06b6d4" alt="release date">
-  <img src="https://img.shields.io/badge/built%20with-love-ef4444?style=flat-square" alt="built with love">
+  <img src="https://img.shields.io/badge/first%20release-2026--07--31-06b6d4?style=flat-square" alt="first release">
 </p>
 
 <p align="center">
