@@ -61,12 +61,8 @@
 
 **How it works:**
 
-```mermaid
-flowchart LR
-    A[Type a title] --> B[Search TMDB]
-    B --> C[Preview posters]
-    C --> D[Pick one]
-    D --> E[Attach]
+```
+Type a title → Search TMDB → Preview posters → Pick one → Attach
 ```
 
 The poster is embedded **inside** the file — rename it, move it, back it up, and it stays with the video. No server, no scraper, nothing running in the background.
