@@ -24,6 +24,14 @@ class FileCheckbox(Checkbox):
         event.stop()
 
 
+class PathInput(Input):
+    def _on_paste(self, event: events.Paste) -> None:
+        if event.text:
+            self.value = event.text
+        event.prevent_default()
+        event.stop()
+
+
 CSS = """
 Screen {
     layout: grid;
@@ -72,7 +80,7 @@ class PosterTuiApp(App):
             yield ListView(id="file_list")
             yield Button("Browse (yazi)", id="browse_btn")
             with Horizontal(id="path_row"):
-                yield Input(placeholder="Paste video path(s)...", id="path_input")
+                yield PathInput(placeholder="Paste video path(s)...", id="path_input")
                 yield Button("Add", id="add_path_btn")
             with Horizontal(id="btn_row"):
                 yield Button("Local Image", id="local_img_btn")
@@ -206,15 +214,31 @@ class PosterTuiApp(App):
         raw = self.query_one("#path_input").value.strip()
         if not raw:
             return
+        valid, invalid = self._expand_paths(raw)
+        for p in valid:
+            self._add_video_path(p)
+        if invalid:
+            names = ", ".join(Path(p).name for p in invalid[:3])
+            self.query_one("#status").update(f"Not found: {names}")
+        self.query_one("#path_input").value = ""
+
+    def _expand_paths(self, raw: str) -> tuple[list[str], list[str]]:
+        valid: list[str] = []
+        invalid: list[str] = []
         for line in raw.splitlines():
             line = line.strip().strip("\"'")
-            if line:
-                expanded = os.path.expanduser(line)
-                if os.path.isfile(expanded):
-                    self._add_video_path(expanded)
-                else:
-                    self.query_one("#status").update(f"Not found: {line}")
-        self.query_one("#path_input").value = ""
+            if not line:
+                continue
+            expanded = os.path.expanduser(line)
+            if os.path.isfile(expanded):
+                valid.append(expanded)
+                continue
+            parts = expanded.split()
+            if len(parts) > 1 and all(os.path.isfile(p) for p in parts):
+                valid.extend(parts)
+            else:
+                invalid.append(line)
+        return valid, invalid
 
     @on(Button.Pressed, "#clear_btn")
     def on_clear_files(self):

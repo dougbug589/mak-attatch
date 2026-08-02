@@ -539,6 +539,65 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_multiline_paste_adds_all_paths(self):
+        try:
+            import asyncio
+            from textual import events
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        blob = f"{self.v1}\n{self.v2}"
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test() as pilot:
+                    inp = app.query_one("#path_input")
+                    self.assertIsInstance(inp, tui_app.PathInput)
+                    app.query_one("#path_input").focus()
+                    app.post_message(events.Paste(text=blob))
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(inp.value.splitlines(), [self.v1, self.v2])
+                    app.on_add_path()
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(len(app.video_paths), 2)
+                    self.assertIn(self.v1, app.video_paths)
+                    self.assertIn(self.v2, app.video_paths)
+
+        asyncio.run(run())
+
+    def test_space_separated_blob_adds_all_paths(self):
+        try:
+            import asyncio
+            import tempfile
+            from pathlib import Path
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        tmp = Path(tempfile.mkdtemp(prefix="mak-tui-nospace-"))
+        a = str(tmp / "alpha.mp4")
+        b = str(tmp / "beta.mp4")
+        _make_video(Path(a))
+        _make_video(Path(b))
+        blob = f"{a} {b}"
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test() as pilot:
+                    app.query_one("#path_input").value = blob
+                    app.on_add_path()
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(len(app.video_paths), 2)
+                    self.assertIn(a, app.video_paths)
+                    self.assertIn(b, app.video_paths)
+
+        asyncio.run(run())
+
     @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
     def test_scrape_metadata_only_flow(self):
         try:
