@@ -39,13 +39,11 @@ No more manually downloading posters and figuring out `mkvpropedit` flags.
 
 ### The story
 
-mak-attatch came out of a practical problem: I wanted my media collection to look good without a server to make it happen.
+Honestly, I built this out of necessity. I didn't have the money or the hardware to set up a proper server for my media collection, so everything just lived on local drives. To make it look good I turned to Kodi for the library view — but Kodi pulls posters over the network and caches them server-side, and for me it never really worked the way I wanted. Scrapes failed, titles changed, files moved, and suddenly half my library had missing or wrong artwork. It was doing the opposite of keeping things presentable.
 
-I keep my movies and shows on local drives — no NAS, no dedicated box, no budget for always-on hardware. Media centers like Kodi normally fetch posters over the network and cache them server-side, so when a scrape fails, a title changes, or a file moves, you're left with missing or mismatched art. That never worked the way I intended, and I didn't want to depend on an online service just to keep my own files presentable.
+So I said fine, I'll just do it myself. I started gluing posters straight onto the files with `mkvpropedit --add-attachment` — and you know what, it actually worked. The thumbnail showed up right there in my file browser. But typing those flags out for every single file? That got old fast. And between re-downloading posters and guessing which one matched, it was still a chore.
 
-So I started doing it by hand: `mkvpropedit --add-attachment` to glue a poster onto the file itself. It worked — the thumbnail showed up right in my file browser — but typing those flags for every file got old fast, and I kept re-downloading posters and guessing which one matched.
-
-mak-attatch is that workflow wrapped into a tool: search TMDB, preview posters, attach in one step — with the art embedded *inside* the file rather than fetched on demand. Move it, rename it, back it up, copy it to a USB stick — the poster travels with the video, forever, with nothing else running.
+So I figured I'd build a small tool that does all of this for me — search TMDB, preview the posters, attach with one click — and while I was at it, why not share it with everyone else who's in the same boat. That's mak-attatch. The art gets embedded *inside* the file, so it moves with the video, works offline, and you don't need a server, a scraper, or anything else running to keep your library looking right.
 
 ### Why mak-attatch?
 
