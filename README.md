@@ -23,6 +23,10 @@
 
 <p align="center">
   <img src="https://github.com/dougbug589/mak-attatch/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/GUI-PyQt6-orange.svg" alt="PyQt6">
+  <img src="https://img.shields.io/badge/TUI-Textual-green.svg" alt="Textual">
 </p>
 
 ---
@@ -32,6 +36,17 @@
 Point it at a video file (or just type a title), pull up posters from TMDB, pick one — it gets embedded as cover art in the file. MKV is native; other formats are converted automatically.
 
 No more manually downloading posters and figuring out `mkvpropedit` flags.
+
+### Why mak-attatch?
+
+Poster art makes your media library browseable at a glance — but attaching it is fiddly:
+`mkvpropedit` flags for MKV, ffmpeg `attached_pic` dispositions for MP4, and every format has different rules. mak-attatch wraps all of that up so you can:
+
+- **Search TMDB** for the exact movie or show and pick the right poster by previewing it first — no guessing which of 20 similar posters matches.
+- **Run it from anywhere** — a full desktop GUI (PyQt6) or a lightweight terminal TUI (Textual) for headless/SSH/library-server boxes.
+- **Fix a whole folder in one go** — add several files, pick one poster, attach to all; or strip posters/metadata from everything at once.
+- **Go beyond the artwork** — optionally embed full TMDB metadata (title, overview, genres, cast) as MKV/MP4 tags so your library's info stays with the file even if it moves.
+- **Stay format-safe** — MKV stays MKV, MP4 stays MP4, and oddball formats (AVI, etc.) are converted to MKV automatically; nothing is lost in the process.
 
 ---
 
@@ -150,7 +165,7 @@ mak-attatch-tui
 
 ### File browsing
 
-Press `Ctrl+F` to open **yazi** as a file browser. Pick files, press `Enter`, and they appear in the files panel. You can also paste paths manually or type them in.
+Press `Ctrl+F` or click **Browse (yazi)** to open **yazi** as a file browser. Mark several files with `Space`, then press `Enter` — all of them are added to the files panel. You can also paste multiple paths into the path field (newline- or space-separated) or type them in.
 
 ### Batch mode
 
