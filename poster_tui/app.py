@@ -279,6 +279,7 @@ class PosterTuiApp(App):
     def action_toggle_file_selection(self):
         idx = self.query_one("#file_list").index
         if idx is None:
+            self.query_one("#file_list").index = 0
             idx = 0
         if idx >= len(self.video_paths):
             return

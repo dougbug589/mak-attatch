@@ -452,6 +452,41 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_keyboard_space_multi_select_from_unfocused_list(self):
+        try:
+            import asyncio
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test(size=(120, 40)) as pilot:
+                    app._add_video_path(self.v1)
+                    app._add_video_path(self.v2)
+                    await asyncio.sleep(0.1)
+                    await pilot.press("ctrl+r")
+                    await asyncio.sleep(0.1)
+                    lv = app.query_one("#file_list")
+                    self.assertIsNone(lv.index)
+                    await pilot.press("space")
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v1])
+                    self.assertEqual(lv.index, 0)
+                    await pilot.press("down")
+                    await asyncio.sleep(0.1)
+                    await pilot.press("space")
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v1, self.v2])
+                    self.assertEqual(lv.index, 1)
+                    await pilot.press("space")
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v1])
+
+        asyncio.run(run())
+
     def test_mouse_click_multi_select(self):
         try:
             import asyncio
