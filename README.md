@@ -1,10 +1,15 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="mak-attatch — poster art for your video files">
+  <img src="assets/logo.png" alt="mak-attatch" width="120">
+</p>
+
+<h1 align="center">mak-attatch</h1>
+
+<p align="center">
+  Search TMDB for movie and TV posters, preview them, and embed cover art into your video files.
 </p>
 
 <p align="center">
-  Search <b>TMDB</b> for movie &amp; TV posters · <b>preview</b> them · <b>embed</b> cover art straight into your video files.<br>
-  <b>MKV</b> is native — <b>MP4</b>, <b>MOV</b> &amp; <b>AVI</b> are converted automatically.
+  <b>Desktop GUI</b> (PyQt6) &nbsp;·&nbsp; <b>Terminal TUI</b> (Textual)
 </p>
 
 <p align="center">
@@ -19,23 +24,23 @@
 </p>
 
 <p align="center">
-  <a href="#features">✨ Features</a> ·
-  <a href="#quick-start">⚡ Quick start</a> ·
-  <a href="#usage">🚀 Usage</a> ·
-  <a href="#keyboard-shortcuts">⌨️ Shortcuts</a> ·
-  <a href="#the-story">🎞️ The story</a> ·
-  <a href="#requirements">📦 Requirements</a>
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#keyboard-shortcuts">Shortcuts</a> ·
+  <a href="#the-story">The story</a> ·
+  <a href="#requirements">Requirements</a>
 </p>
 
 ---
 
-## ✨ Features
+## Features
 
 | | | | |
 |---|---|---|---|
-| 🎬 **TMDB search** — movies & TV with full poster selection | 🖼️ **Poster preview** — full-res preview before attaching | 📦 **Batch attach** — add many files, one poster attaches to all | 🧹 **Batch remove** — strip art & metadata in one go |
-| 🧠 **Smart parsing** — title & year auto-detected from filenames | 📚 **Metadata embed** — optional title/overview/genres/cast tags | 🖌️ **Local images** — use any JPEG/PNG as a poster | 🧊 **Format-safe** — MKV stays MKV, MP4 stays MP4 |
-| 🖥️ **Two interfaces** — desktop GUI (PyQt6) or terminal TUI (Textual) | 🏝️ **Self-contained art** — lives *in* the file, survives moves, works offline | 🧩 **yazi integration** — multi-select files straight from the TUI | 🏠 **No server needed** — no NAS, no always-on box, no scraper |
+| **TMDB search** — movies & TV with full poster selection | **Poster preview** — full-res preview before attaching | **Batch attach** — add many files, one poster attaches to all | **Batch remove** — strip art & metadata in one go |
+| **Smart parsing** — title & year auto-detected from filenames | **Metadata embed** — optional title/overview/genres/cast tags | **Local images** — use any JPEG/PNG as a poster | **Format-safe** — MKV stays MKV, MP4 stays MP4 |
+| **Two interfaces** — desktop GUI (PyQt6) or terminal TUI (Textual) | **Self-contained art** — lives *in* the file, survives moves, works offline | **yazi integration** — multi-select files straight from the TUI | **No server needed** — no NAS, no always-on box, no scraper |
 
 ### How it works
 
@@ -47,7 +52,7 @@
 
 ---
 
-## ⚡ Quick start
+## Quick start
 
 **Arch (AUR)**
 ```bash
@@ -79,9 +84,9 @@ Install the system dependencies from [Requirements](#requirements) first.
 
 ---
 
-## 🚀 Usage
+## Usage
 
-### 🖥️ Desktop GUI
+### Desktop GUI
 
 ```bash
 mak-attatch
@@ -95,7 +100,7 @@ mak-attatch
 
 > Drag-and-drop files, batch mode and local image posters are all supported.
 
-### ⌨️ Terminal TUI
+### Terminal TUI
 
 ```bash
 mak-attatch-tui
@@ -111,7 +116,7 @@ mak-attatch-tui
 
 ---
 
-## ⌨️ Keyboard shortcuts (TUI)
+## Keyboard shortcuts (TUI)
 
 | Key | Action |
 |---|---|
@@ -128,7 +133,7 @@ Panels cycle in order: Search → Results → Posters → Files → Buttons.
 
 ---
 
-## 🎞️ The story
+## The story
 
 > This tool was born out of necessity. There wasn't the budget or the hardware for a proper media server, so the collection just lives on local drives. Kodi handled the library view, but it pulls posters over the network and caches them server-side — and the scrapers would fail or grab the wrong poster for a file. Half the time the library ended up looking worse than a plain file browser.
 >
@@ -138,7 +143,7 @@ Panels cycle in order: Search → Results → Posters → Files → Buttons.
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 | Dependency | Version | Notes |
 |---|---|---|
@@ -163,7 +168,7 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 
 ---
 
-## 🔧 How it works per format
+## How it works per format
 
 | Format | Attach | Remove |
 |---|---|---|
@@ -175,7 +180,7 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 
 ---
 
-## 🔑 API key
+## API key
 
 Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both apps prompt for it on first launch. Stored in:
 
@@ -185,7 +190,7 @@ Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/setti
 
 ---
 
-## 🧰 Standalone utility
+## Standalone utility
 
 No app? `convert.sh` attaches or removes a poster from a single file:
 
@@ -197,7 +202,7 @@ Prompts for add/remove mode, video path and an optional poster image. Handles fo
 
 ---
 
-## 📁 Project structure
+## Project structure
 
 ```
 mak-attatch/
@@ -222,6 +227,6 @@ mak-attatch/
 
 ---
 
-## 📄 License
+## License
 
 [MIT](LICENSE)
