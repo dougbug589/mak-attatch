@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="mak-attatch — poster art for your video files">
+  <img src="assets/logo.png" alt="mak-attatch" width="140">
 </p>
+
+<h1 align="center">mak-attatch</h1>
 
 <p align="center">
   <img src="https://img.shields.io/github/v/release/dougbug589/mak-attatch?style=flat-square&label=release&color=7c3aed" alt="release">
