@@ -39,11 +39,11 @@ No more manually downloading posters and figuring out `mkvpropedit` flags.
 
 ### The story
 
-Honestly, I built this out of necessity. I didn't have the money or the hardware to set up a proper server for my media collection, so everything just lives on local drives. To make it look good I used Kodi for the library view — but Kodi pulls posters over the network and caches them server-side, and for me it never really worked. The scrapers would fail, or it would grab the wrong poster for a file. Half the time my library ended up looking worse than a plain file browser.
+This tool was born out of necessity. There wasn't the budget or the hardware for a proper media server, so the collection just lives on local drives. Kodi handled the library view, but it pulls posters over the network and caches them server-side — and the scrapers would fail or grab the wrong poster for a file. Half the time the library ended up looking worse than a plain file browser.
 
-So I said fine, I'll just do it myself. I started gluing posters straight onto the files with `mkvpropedit --add-attachment` — and you know what, it actually worked. The thumbnail showed up right there in my file browser. But typing those flags out for every single file got old fast, and between re-downloading posters and guessing which one matched, it was still a chore.
+Manual attachment via `mkvpropedit --add-attachment` worked — the thumbnail showed up right in the file browser. But typing those flags out for every single file got old fast, and between re-downloading posters and guessing which one matched, it was still a chore.
 
-So I figured I'd build a small tool that does all of this for me — search TMDB, preview the posters, attach with one click — and while I was at it, why not share it with everyone else who's in the same boat. That's mak-attatch. The art gets embedded *inside* the file, so it moves with the video, works offline, and you don't need a server, a scraper, or anything else running to keep your library looking right.
+mak-attatch is a small tool that puts it all in one place: search TMDB, preview the posters, attach with one click. The art gets embedded *inside* the file, so it moves with the video, works offline, and no server or scraper has to be running to keep the library looking right.
 
 ### Why mak-attatch?
 
