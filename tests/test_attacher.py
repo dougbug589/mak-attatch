@@ -210,9 +210,10 @@ class TestParser(unittest.TestCase):
 
 
 try:
-    from ui.main_window import BatchWorker
+    from ui.main_window import BatchWorker, MainWindow
 except Exception:  # PyQt6 not installed (CI test runner)
     BatchWorker = None
+    MainWindow = None
 
 
 class TestSharedCore(unittest.TestCase):
@@ -273,6 +274,41 @@ class TestBatchWorker(unittest.TestCase):
         worker.run()
         self.assertTrue(all(r["ok"] for r in worker.results), worker.results)
         self.assertTrue(self.img.exists(), "user-selected local poster must not be deleted")
+
+
+class TestBatchAttachTargets(unittest.TestCase):
+    @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
+    def test_batch_attach_uses_selected_targets_not_all_files(self):
+        from unittest.mock import Mock
+
+        from ui import main_window as mw
+
+        captured = {}
+
+        class FakeWorker:
+            def __init__(self, paths, poster_path, metadata, cleanup_poster=False):
+                captured["paths"] = list(paths)
+                captured["poster"] = poster_path
+                captured["cleanup"] = cleanup_poster
+                self.progress = Mock()
+                self.finished = Mock()
+
+            def start(self):
+                pass
+
+        window = mw.MainWindow.__new__(mw.MainWindow)
+        window.video_paths = ["/tmp/all-a.mkv", "/tmp/all-b.mkv", "/tmp/all-c.mkv"]
+        window.selected_video_paths = {"/tmp/all-b.mkv"}
+        window.video_path = None
+        window.local_poster_path = None
+        window.progress = Mock()
+        window.status_label = Mock()
+
+        with patch.object(mw, "BatchWorker", FakeWorker):
+            window._batch_attach(["/tmp/all-b.mkv"], "/tmp/poster.jpg")
+
+        self.assertEqual(captured["paths"], ["/tmp/all-b.mkv"])
+        self.assertEqual(captured["poster"], "/tmp/poster.jpg")
 
 
 class TestPosterTuiPosterGallery(unittest.TestCase):
@@ -383,11 +419,18 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test():
+                async with app.run_test() as pilot:
                     app._add_video_path(self.v1)
                     app._add_video_path(self.v2)
                     await asyncio.sleep(0.1)
                     self.assertEqual(app._targets(), [self.v1, self.v2])
+
+                    async def wait_targets(expected):
+                        for _ in range(100):
+                            if app._targets() == expected:
+                                return
+                            await asyncio.sleep(0.02)
+                        self.assertEqual(app._targets(), expected)
 
                     app.query_one("#file_list").index = 0
                     app.action_toggle_file_selection()
@@ -403,11 +446,41 @@ class TestPosterTuiFileSelection(unittest.TestCase):
                     self.assertEqual(app._targets(), [self.v1, self.v2])
 
                     app.query_one("#file_cb_0").value = True
-                    await asyncio.sleep(0.05)
-                    self.assertEqual(app._targets(), [self.v1])
+                    await wait_targets([self.v1])
                     app.query_one("#file_cb_0").value = False
-                    await asyncio.sleep(0.05)
+                    await wait_targets([self.v1, self.v2])
+
+        asyncio.run(run())
+
+    def test_mouse_click_multi_select(self):
+        try:
+            import asyncio
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test(size=(120, 40)) as pilot:
+                    app._add_video_path(self.v1)
+                    app._add_video_path(self.v2)
+                    await asyncio.sleep(0.1)
+                    await pilot.press("ctrl+r")
+                    await asyncio.sleep(0.1)
+                    cb0 = app.query_one("#file_cb_0")
+                    cb1 = app.query_one("#file_cb_1")
+                    await pilot.click(cb0)
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v1])
+                    await pilot.click(cb1)
+                    await asyncio.sleep(0.1)
                     self.assertEqual(app._targets(), [self.v1, self.v2])
+                    self.assertIsNone(app.query_one("#file_list").index)
+                    await pilot.click(cb0)
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(app._targets(), [self.v2])
 
         asyncio.run(run())
 

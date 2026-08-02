@@ -634,7 +634,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Done", f"Poster attached to {name}!")
             else:
                 used_batch = True
-                self._batch_attach(poster_path, metadata)
+                self._batch_attach(targets, poster_path, metadata)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
@@ -645,13 +645,13 @@ class MainWindow(QMainWindow):
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
 
-    def _batch_attach(self, poster_path, metadata=None):
-        self.progress.setRange(0, len(self.video_paths))
+    def _batch_attach(self, targets, poster_path, metadata=None):
+        self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
-        self.status_label.setText(f"Attaching to 1/{len(self.video_paths)}...")
+        self.status_label.setText(f"Attaching to 1/{len(targets)}...")
 
         self._batch_worker = BatchWorker(
-            self.video_paths, poster_path, metadata,
+            targets, poster_path, metadata,
             cleanup_poster=(poster_path != self.local_poster_path),
         )
         self._batch_worker.progress.connect(self._on_batch_progress)

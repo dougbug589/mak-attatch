@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -17,6 +17,11 @@ from textual.widgets import (
 
 import config
 from core import attacher, parser, tmdb
+
+
+class FileCheckbox(Checkbox):
+    def _on_click(self, event: events.Click) -> None:
+        event.stop()
 
 
 CSS = """
@@ -186,7 +191,7 @@ class PosterTuiApp(App):
             return
         self.video_paths.append(p)
         idx = len(self.video_paths) - 1
-        row = ListItem(Checkbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
+        row = ListItem(FileCheckbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
         self.query_one("#file_list").append(row)
         self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
         config.set("last_dir", str(Path(p).parent))
@@ -273,7 +278,9 @@ class PosterTuiApp(App):
 
     def action_toggle_file_selection(self):
         idx = self.query_one("#file_list").index
-        if idx is None or idx >= len(self.video_paths):
+        if idx is None:
+            idx = 0
+        if idx >= len(self.video_paths):
             return
         path = self.video_paths[idx]
         if path in self.selected_files:
@@ -485,6 +492,7 @@ class PosterTuiApp(App):
             total = len(self._targets())
             ok = 0
             fail = 0
+            first_error = None
             for i, path in enumerate(self._targets()):
                 self.call_from_thread(
                     lambda i=i, p=path: self.query_one("#status").update(
@@ -494,10 +502,17 @@ class PosterTuiApp(App):
                 try:
                     attacher.full_attach(path, poster_path, metadata=metadata)
                     ok += 1
-                except Exception:
+                except Exception as e:
                     fail += 1
+                    if first_error is None:
+                        first_error = f"{Path(path).name}: {e}"
 
-            msg = f"Attached to {ok} file(s)" if fail == 0 else f"Attached: {ok}, Failed: {fail}"
+            if fail == 0:
+                msg = f"Attached to {ok} file(s)"
+            elif first_error:
+                msg = f"Attached: {ok}, Failed: {fail} — {first_error}"
+            else:
+                msg = f"Attached: {ok}, Failed: {fail}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
         except Exception as e:
             self.call_from_thread(lambda: self.query_one("#status").update(f"Error: {e}"))
