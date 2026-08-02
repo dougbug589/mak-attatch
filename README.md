@@ -77,11 +77,11 @@ The tool in action — real usage, no editing.
 
 ### Desktop GUI (PyQt6)
 
-<video controls src="https://github.com/dougbug589/mak-attatch/raw/main/assets/showcase/desktop.mp4" width="640"></video>
+https://github.com/user-attachments/assets/35b4e52a-d9fe-4fc2-ab74-466f51cbaf39
 
 ### Terminal TUI (Textual)
 
-<video controls src="https://github.com/dougbug589/mak-attatch/raw/main/assets/showcase/cli.mp4" width="640"></video>
+https://github.com/user-attachments/assets/8afd62c7-1402-457b-b494-d92403e91b3d
 
 ---
 
