@@ -458,6 +458,13 @@ class MainWindow(QMainWindow):
         self.remove_meta_btn.clicked.connect(self._remove_metadata)
         lay.addWidget(self.remove_meta_btn)
 
+        self.scrape_meta_btn = QPushButton("Scrape Metadata")
+        self.scrape_meta_btn.setToolTip(
+            "Write TMDB metadata (title, overview, rating, credits) without attaching a poster"
+        )
+        self.scrape_meta_btn.clicked.connect(self._scrape_metadata)
+        lay.addWidget(self.scrape_meta_btn)
+
         return w
 
     def _browse_video(self):
@@ -627,7 +634,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Done", f"Poster attached to {name}!")
             else:
                 used_batch = True
-                self._batch_attach(poster_path, metadata)
+                self._batch_attach(targets, poster_path, metadata)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
@@ -638,13 +645,13 @@ class MainWindow(QMainWindow):
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
 
-    def _batch_attach(self, poster_path, metadata=None):
-        self.progress.setRange(0, len(self.video_paths))
+    def _batch_attach(self, targets, poster_path, metadata=None):
+        self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
-        self.status_label.setText(f"Attaching to 1/{len(self.video_paths)}...")
+        self.status_label.setText(f"Attaching to 1/{len(targets)}...")
 
         self._batch_worker = BatchWorker(
-            self.video_paths, poster_path, metadata,
+            targets, poster_path, metadata,
             cleanup_poster=(poster_path != self.local_poster_path),
         )
         self._batch_worker.progress.connect(self._on_batch_progress)
@@ -753,6 +760,48 @@ class MainWindow(QMainWindow):
                 attacher.remove_metadata(v)
             except Exception as e:
                 fail.append(f"{v}\n  {e}")
+        return fail
+
+    def _scrape_metadata(self):
+        videos = self._active_targets()
+        if not videos:
+            QMessageBox.warning(self, "No Files", "Select a video file first.")
+            return
+        msg = (f"Scrape and write TMDB metadata for {len(videos)} file(s)?\n"
+               "Poster artwork will be kept.")
+        if QMessageBox.question(self, "Scrape Metadata", msg) != QMessageBox.StandardButton.Yes:
+            return
+
+        self.progress.show()
+        self.progress.setRange(0, len(videos))
+        self.progress.setValue(0)
+        self.scrape_meta_btn.setEnabled(False)
+        self.status_label.setText("Scraping metadata...")
+        try:
+            fail = self._batch_scrape_metadata(videos)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            return
+        finally:
+            self.progress.hide()
+            self.scrape_meta_btn.setEnabled(True)
+        ok = len(videos) - len(fail)
+        if fail:
+            QMessageBox.warning(self, "Done", f"Metadata written to {ok} files.\n{fail} failed.")
+        else:
+            QMessageBox.information(self, "Done", f"Metadata written to all {ok} files!")
+        self.status_label.setText(f"Scrape metadata: {ok} succeeded, {len(fail)} failed")
+
+    def _batch_scrape_metadata(self, videos):
+        fail = []
+        for i, v in enumerate(videos):
+            self.progress.setValue(i + 1)
+            self.status_label.setText(f"Scraping {i + 1}/{len(videos)}: {Path(v).name}")
+            try:
+                metadata = tmdb.details_for_path(v, self.current_media)
+                attacher.write_metadata(v, metadata)
+            except Exception as e:
+                fail.append(f"{Path(v).name}: {e}")
         return fail
 
     def dragEnterEvent(self, event: QDragEnterEvent):
