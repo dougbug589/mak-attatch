@@ -2,8 +2,6 @@
   <img src="assets/logo.png" alt="mak-attatch" width="140">
 </p>
 
-<h1 align="center">mak-attatch</h1>
-
 <p align="center">
   <img src="https://img.shields.io/github/v/release/dougbug589/mak-attatch?style=flat-square&label=release&color=7c3aed" alt="release">
   <img src="https://img.shields.io/github/stars/dougbug589/mak-attatch?style=flat-square&label=stars&color=7c3aed&logo=github&logoColor=white" alt="stars">
