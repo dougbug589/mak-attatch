@@ -519,6 +519,26 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_empty_list_status_message(self):
+        try:
+            import asyncio
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test() as pilot:
+                    app._update_selection_status()
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(
+                        str(app.query_one("#status").content), "No video files loaded"
+                    )
+
+        asyncio.run(run())
+
     @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
     def test_scrape_metadata_only_flow(self):
         try:

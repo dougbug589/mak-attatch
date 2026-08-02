@@ -240,6 +240,9 @@ class PosterTuiApp(App):
         return f"{n} file(s) selected"
 
     def _update_selection_status(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
         self.query_one("#status").update(self._selection_summary() + " (d to clear)")
 
     @on(Checkbox.Changed)
