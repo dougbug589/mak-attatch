@@ -1,16 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="mak-attatch" width="140">
-</p>
-
-<h1 align="center">mak-attatch</h1>
-
-<p align="center">
-  <b>Embed TMDB poster art into your video files.</b><br>
-  Search, preview, attach — <b>MKV</b> native, <b>MP4 / MOV / AVI</b> converted automatically.
-</p>
-
-<p align="center">
-  Desktop GUI (PyQt6) &nbsp;·&nbsp; Terminal TUI (Textual) &nbsp;·&nbsp; Linux (Arch · AUR)
+  <img src="assets/banner.svg" alt="mak-attatch — poster art for your video files">
 </p>
 
 <p align="center">
@@ -25,136 +14,123 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/-Features-7c3aed?style=flat-square" alt="features">
-  <a href="#quick-start"><img src="https://img.shields.io/badge/-Quick%20start-4f46e5?style=flat-square" alt="quick start"></a>
-  <a href="#usage"><img src="https://img.shields.io/badge/-Usage-4f46e5?style=flat-square" alt="usage"></a>
-  <a href="#shortcuts"><img src="https://img.shields.io/badge/-Shortcuts-06b6d4?style=flat-square" alt="shortcuts"></a>
-  <a href="#story"><img src="https://img.shields.io/badge/-The%20story-06b6d4?style=flat-square" alt="the story"></a>
-  <a href="#requirements"><img src="https://img.shields.io/badge/-Requirements-22c55e?style=flat-square" alt="requirements"></a>
-  <a href="#license"><img src="https://img.shields.io/badge/-License-7c3aed?style=flat-square" alt="license"></a>
+  Search <b>TMDB</b> · Preview posters · Attach cover art to your video files — <b>MKV</b> native, <b>MP4 / MOV / AVI</b> converted automatically.
 </p>
 
 <p align="center">
-  <sub>Linux is supported today — <b>Windows &amp; Android are on the way</b>.</sub>
-</p>
-
----
-
-<h2 align="center">Features</h2>
-
-| | | | |
-|---|---|---|---|
-| **TMDB search** — movies & TV with full poster selection | **Poster preview** — full-res preview before attaching | **Batch attach** — many files, one poster | **Batch remove** — strip art & metadata |
-| **Smart parsing** — title & year from filenames | **Metadata embed** — title / overview / genres / cast | **Local images** — any JPEG/PNG as a poster | **Format-safe** — MKV stays MKV, MP4 stays MP4 |
-| **Desktop GUI** — PyQt6 | **Terminal TUI** — Textual, for headless / SSH boxes | **yazi integration** — multi-select in the TUI | **Self-contained art** — lives *in* the file, works offline |
-
-<h4 align="center">How it works</h4>
-
-<p align="center">
-  <code>Type a title</code> &nbsp;→&nbsp; <code>Search TMDB</code> &nbsp;→&nbsp; <code>Preview posters</code> &nbsp;→&nbsp; <code>Pick one</code> &nbsp;→&nbsp; <code>Attach</code>
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#shortcuts">Shortcuts</a> ·
+  <a href="#story">The story</a> ·
+  <a href="#requirements">Requirements</a> ·
+  <a href="#license">License</a>
 </p>
 
 <p align="center">
-  <sub>The poster is embedded <b>inside</b> the file — rename it, move it, back it up, and it stays with the video.</sub>
+  <sub>Linux today · <b>Windows &amp; Android on the way</b></sub>
 </p>
 
-<p align="right">[Back to top](#)</p>
+---
+
+## 🎬 Features
+
+| | |
+|---|---|
+| 🎬 **TMDB search** — movies & TV with full poster selection | 🖼️ **Poster preview** — full-resolution preview before attaching |
+| 📦 **Batch attach** — add many files, one poster attaches to all | 🧹 **Batch remove** — strip art & metadata in one go |
+| 🧠 **Smart parsing** — title & year auto-detected from filenames | 📚 **Metadata embed** — title, overview, genres, cast tags |
+| 🖌️ **Local images** — use any JPEG/PNG as a poster | 🧊 **Format-safe** — MKV stays MKV, MP4 stays MP4 |
+| 🖥️ **Desktop GUI** — PyQt6 | 💻 **Terminal TUI** — Textual, for headless / SSH boxes |
+| 🧩 **yazi integration** — multi-select files in the TUI | 🏝️ **Self-contained art** — lives *in* the file, works offline |
+
+**How it works:**
+
+```
+Type a title → Search TMDB → Preview posters → Pick one → Attach
+```
+
+The poster is embedded **inside** the file — rename it, move it, back it up, and it stays with the video. No server, no scraper, nothing running in the background.
 
 ---
 
-<h2 align="center">Quick start</h2>
+## ⚡ Quick start
 
-<details>
-  <summary><b>Arch (AUR)</b></summary>
+**💠 Arch (AUR)**
 
-  ```bash
-  yay -S mak-attatch
-  ```
+```bash
+yay -S mak-attatch
+```
 
-  Or build it manually:
+Or build it manually:
 
-  ```bash
-  git clone https://aur.archlinux.org/mak-attatch.git
-  cd mak-attatch
-  makepkg -si
-  ```
-</details>
+```bash
+git clone https://aur.archlinux.org/mak-attatch.git
+cd mak-attatch
+makepkg -si
+```
 
-<details>
-  <summary><b>From source</b></summary>
+**🧩 From source**
 
-  ```bash
-  git clone https://github.com/dougbug589/mak-attatch
-  cd mak-attatch
-  sudo make install
-  ```
+```bash
+git clone https://github.com/dougbug589/mak-attatch
+cd mak-attatch
+sudo make install
+```
 
-  Install the system dependencies from [Requirements](#requirements) first.
-</details>
+**🚀 Try without installing**
 
-<details>
-  <summary><b>Try without installing</b></summary>
+```bash
+git clone https://github.com/dougbug589/mak-attatch
+cd mak-attatch
+./setup.sh
+.venv/bin/python main.py       # desktop GUI
+.venv/bin/python poster-tui    # terminal TUI
+```
 
-  ```bash
-  git clone https://github.com/dougbug589/mak-attatch
-  cd mak-attatch
-  ./setup.sh
-  .venv/bin/python main.py       # desktop GUI
-  .venv/bin/python poster-tui    # terminal TUI
-  ```
-</details>
+**🗑️ Uninstall**
 
-<details>
-  <summary><b>Uninstall</b></summary>
+```bash
+sudo make uninstall
+```
 
-  ```bash
-  sudo make uninstall
-  ```
-</details>
-
-<p align="right">[Back to top](#)</p>
+Install the system dependencies from [Requirements](#requirements) first.
 
 ---
 
-<h2 align="center">Usage</h2>
+## 🚀 Usage
 
-<details>
-  <summary><b>Desktop GUI</b></summary>
+**🖥️ Desktop GUI**
 
-  ```bash
-  mak-attatch
-  ```
+```bash
+mak-attatch
+```
 
-  1. Enter your TMDB API key on first launch
-  2. **Browse** for a video file, or **type** a movie/show name and search
-  3. **Double-click** a result to browse its posters
-  4. **Click** a poster to preview, then select it
-  5. Hit **Attach Poster**
+1. Enter your TMDB API key on first launch
+2. **Browse** for a video file, or **type** a movie/show name and search
+3. **Double-click** a result to browse its posters
+4. **Click** a poster to preview, then select it
+5. Hit **Attach Poster**
 
-  <sub>Drag-and-drop, batch mode and local image posters are supported.</sub>
-</details>
+Drag-and-drop, batch mode and local image posters are supported.
 
-<details>
-  <summary><b>Terminal TUI</b></summary>
+**⌨️ Terminal TUI**
 
-  ```bash
-  mak-attatch-tui
-  ```
+```bash
+mak-attatch-tui
+```
 
-  1. Enter your TMDB API key on first launch
-  2. **Search** for a movie or TV show
-  3. Press <kbd>Enter</kbd> to load posters
-  4. **Arrow keys** to navigate, <kbd>Enter</kbd> to preview
-  5. Press <kbd>Enter</kbd> again to close, then **Attach Poster**
+1. Enter your TMDB API key on first launch
+2. **Search** for a movie or TV show
+3. Press <kbd>Enter</kbd> to load posters
+4. **Arrow keys** to navigate, <kbd>Enter</kbd> to preview
+5. Press <kbd>Enter</kbd> again to close, then **Attach Poster**
 
-  <sub><b>Browse (yazi):</b> press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added. Multiple paths can be pasted too (newline- or space-separated).</sub>
-</details>
-
-<p align="right">[Back to top](#)</p>
+**Browse (yazi):** press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark several files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added to the files panel. Multiple paths can also be pasted (newline- or space-separated) or typed in.
 
 ---
 
-<h2 align="center" id="shortcuts">Keyboard shortcuts (TUI)</h2>
+## ⌨️ Keyboard shortcuts (TUI)
 
 | Key | Action |
 |---|---|
@@ -165,13 +141,11 @@
 | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Open **yazi** file browser |
 | <kbd>Ctrl</kbd>+<kbd>Q</kbd> | Quit |
 
-<p align="center"><sub>Panels cycle in order: Search → Results → Posters → Files → Buttons. The GUI uses standard desktop shortcuts.</sub></p>
-
-<p align="right">[Back to top](#)</p>
+Panels cycle in order: Search → Results → Posters → Files → Buttons. The GUI uses standard desktop shortcuts (<kbd>Ctrl</kbd>+<kbd>O</kbd> to open files, <kbd>Ctrl</kbd>+<kbd>V</kbd> to paste).
 
 ---
 
-<h2 align="center" id="story">The story</h2>
+## 🎞️ The story
 
 > This tool was born out of necessity. There wasn't the budget or the hardware for a proper media server, so the collection just lives on local drives. Kodi handled the library view, but it pulls posters over the network and caches them server-side — and the scrapers would fail or grab the wrong poster for a file. Half the time the library ended up looking worse than a plain file browser.
 >
@@ -179,11 +153,9 @@
 >
 > mak-attatch is a small tool that puts it all in one place: search TMDB, preview the posters, attach with one click. The art gets embedded *inside* the file, so it moves with the video, works offline, and no server or scraper has to be running to keep the library looking right.
 
-<p align="right">[Back to top](#)</p>
-
 ---
 
-<h2 align="center" id="requirements">Requirements</h2>
+## 📦 Requirements
 
 | Dependency | Version | Notes |
 |---|---|---|
@@ -192,29 +164,23 @@
 | mkvtoolnix-cli | latest | `mkvpropedit` for MKV |
 | TMDB API key | free | Prompted on first launch; stored in `~/.config/mak-attatch/` |
 
-<p align="center"><sub><b>TUI extras:</b> <code>python-textual</code> (framework) · <code>yazi</code> (file browser, optional) · <code>chafa</code> (terminal preview)</sub></p>
+**TUI extras:** `python-textual` (framework) · `yazi` (file browser, optional) · `chafa` (terminal poster preview)
 
-<details>
-  <summary><b>Install system dependencies</b></summary>
+```bash
+# Arch
+sudo pacman -S python python-pyqt6 python-requests python-guessit ffmpeg mkvtoolnix-cli
+sudo pacman -S python-textual yazi chafa          # TUI extras
 
-  ```bash
-  # Arch
-  sudo pacman -S python python-pyqt6 python-requests python-guessit ffmpeg mkvtoolnix-cli
-  sudo pacman -S python-textual yazi chafa          # TUI extras
+# Debian/Ubuntu
+sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
 
-  # Debian/Ubuntu
-  sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
-
-  # Fedora
-  sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
-  ```
-</details>
-
-<p align="right">[Back to top](#)</p>
+# Fedora
+sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
+```
 
 ---
 
-<h2 align="center">How it works per format</h2>
+## 🛠️ How it works per format
 
 | Format | Attach | Remove |
 |---|---|---|
@@ -222,13 +188,11 @@
 | **MP4/MOV** | `ffmpeg -disposition:v:1 attached_pic` | ffprobe detect + ffmpeg remux strip |
 | **Other** (AVI, etc.) | Convert to MKV, then attach | Convert to MKV, then remove |
 
-<p align="center"><sub><b>Metadata:</b> tick <b>Scrape metadata</b> to embed title, year, overview, genres, rating and cast (Matroska tags for MKV, ffmpeg tags for MP4/MOV). <b>Remove Metadata</b> strips title + tags while keeping the poster. Re-attaching always overwrites stale tags.</sub></p>
-
-<p align="right">[Back to top](#)</p>
+**Metadata:** tick **Scrape metadata** to embed title, year, overview, genres, rating and cast (Matroska tags for MKV, ffmpeg tags for MP4/MOV). **Remove Metadata** strips the segment title + tags while keeping the poster. Re-attaching always overwrites stale tags.
 
 ---
 
-<h2 align="center">API key</h2>
+## 🔑 API key
 
 Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both apps prompt for it on first launch. Stored in:
 
@@ -236,11 +200,9 @@ Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/setti
 ~/.config/mak-attatch/config.json
 ```
 
-<p align="right">[Back to top](#)</p>
-
 ---
 
-<h2 align="center">Standalone utility</h2>
+## 🧰 Standalone utility
 
 No app? `convert.sh` attaches or removes a poster from a single file:
 
@@ -250,41 +212,33 @@ No app? `convert.sh` attaches or removes a poster from a single file:
 
 Prompts for add/remove mode, video path and an optional poster image. Handles format conversion and attachment natively.
 
-<p align="right">[Back to top](#)</p>
+---
+
+## 📁 Project structure
+
+```
+mak-attatch/
+├── main.py              # Desktop GUI entry point
+├── poster-tui           # Terminal TUI entry point
+├── poster_tui/          # TUI application
+│   ├── app.py
+│   └── core/
+│       ├── tmdb.py      # TMDB API client
+│       ├── attacher.py  # MKV/MP4 attachment logic
+│       └── parser.py    # Title extraction from filenames
+├── ui/                  # PyQt6 desktop GUI
+├── core/                # Shared core modules
+├── config.py            # Root-level configuration
+├── convert.sh           # Standalone bash utility
+├── requirements.txt     # Python dependencies
+├── setup.sh             # Virtual environment setup
+├── PKGBUILD             # Arch Linux package build
+├── Makefile             # Install/uninstall targets
+└── assets/              # Logos and screenshots
+```
 
 ---
 
-<h2 align="center">Project structure</h2>
+## 📄 License
 
-<details>
-  <summary><b>Show layout</b></summary>
-
-  ```
-  mak-attatch/
-  ├── main.py              # Desktop GUI entry point
-  ├── poster-tui           # Terminal TUI entry point
-  ├── poster_tui/          # TUI application
-  │   ├── app.py
-  │   └── core/
-  │       ├── tmdb.py      # TMDB API client
-  │       ├── attacher.py  # MKV/MP4 attachment logic
-  │       └── parser.py    # Title extraction from filenames
-  ├── ui/                  # PyQt6 desktop GUI
-  ├── core/                # Shared core modules
-  ├── config.py            # Root-level configuration
-  ├── convert.sh           # Standalone bash utility
-  ├── requirements.txt     # Python dependencies
-  ├── setup.sh             # Virtual environment setup
-  ├── PKGBUILD             # Arch Linux package build
-  ├── Makefile             # Install/uninstall targets
-  └── assets/              # Logos and screenshots
-  ```
-</details>
-
-<p align="right">[Back to top](#)</p>
-
----
-
-<h2 align="center" id="license">License</h2>
-
-<p align="center"><a href="LICENSE">MIT</a></p>
+[MIT](LICENSE)
