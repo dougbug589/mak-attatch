@@ -343,12 +343,23 @@ class PosterTuiApp(App):
                 if info:
                     safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
                     print(f"\n{safe}", flush=True)
+                targets = self._targets()
+                if targets:
+                    print(
+                        f"\nWill attach to {len(targets)} file(s): "
+                        + ", ".join(Path(p).name for p in targets[:5])
+                        + (" ..." if len(targets) > 5 else ""),
+                        flush=True,
+                    )
                 print("\nPress Enter to return...", flush=True)
                 input()
+                print("\033[2J\033[H", end="", flush=True)
+                print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
         except FileNotFoundError:
             pass
         except Exception:  # nosec B110
             pass
+        self._update_selection_status()
 
     @on(Input.Submitted, "#search_input")
     @on(Button.Pressed, "#search_btn")
