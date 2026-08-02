@@ -37,6 +37,16 @@ Point it at a video file (or just type a title), pull up posters from TMDB, pick
 
 No more manually downloading posters and figuring out `mkvpropedit` flags.
 
+### The story
+
+mak-attatch came out of a practical problem: I wanted my media collection to look good without a server to make it happen.
+
+I keep my movies and shows on local drives — no NAS, no dedicated box, no budget for always-on hardware. Media centers like Kodi normally fetch posters over the network and cache them server-side, so when a scrape fails, a title changes, or a file moves, you're left with missing or mismatched art. That never worked the way I intended, and I didn't want to depend on an online service just to keep my own files presentable.
+
+So I started doing it by hand: `mkvpropedit --add-attachment` to glue a poster onto the file itself. It worked — the thumbnail showed up right in my file browser — but typing those flags for every file got old fast, and I kept re-downloading posters and guessing which one matched.
+
+mak-attatch is that workflow wrapped into a tool: search TMDB, preview posters, attach in one step — with the art embedded *inside* the file rather than fetched on demand. Move it, rename it, back it up, copy it to a USB stick — the poster travels with the video, forever, with nothing else running.
+
 ### Why mak-attatch?
 
 Poster art makes your media library browseable at a glance — but attaching it is fiddly:
@@ -47,6 +57,7 @@ Poster art makes your media library browseable at a glance — but attaching it 
 - **Fix a whole folder in one go** — add several files, pick one poster, attach to all; or strip posters/metadata from everything at once.
 - **Go beyond the artwork** — optionally embed full TMDB metadata (title, overview, genres, cast) as MKV/MP4 tags so your library's info stays with the file even if it moves.
 - **Stay format-safe** — MKV stays MKV, MP4 stays MP4, and oddball formats (AVI, etc.) are converted to MKV automatically; nothing is lost in the process.
+- **Work offline, without infrastructure** — art lives in the file, so no server, scraper, or online service is needed to keep your library looking right.
 
 ---
 
@@ -208,6 +219,7 @@ Standard desktop shortcuts — `Ctrl+O` to open files, `Ctrl+V` to paste, etc.
 | **Metadata remove** | Strip all title/tags metadata (MKV + MP4); re-embedding overwrites stale tags |
 | **Local images** | Use any JPEG/PNG/etc as a poster (auto-converts to JPG for MKV) |
 | **Two interfaces** | Full desktop GUI (PyQt6) or lightweight terminal TUI (Textual) |
+| **Self-contained art** | Posters live *in* the file — survive moves, renames, backups, and work offline, with no server or scraper involved |
 
 ### Metadata
 
