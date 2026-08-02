@@ -75,9 +75,13 @@ The poster is embedded **inside** the file — rename it, move it, back it up, a
 
 The tool in action — real usage, no editing.
 
-| Desktop GUI (PyQt6) | Terminal TUI (Textual) |
-|:---:|:---:|
-| <video controls src="assets/showcase/desktop.mp4" width="360"></video> | <video controls src="assets/showcase/cli.mp4" width="360"></video> |
+### Desktop GUI (PyQt6)
+
+<video controls src="assets/showcase/desktop.mp4" width="640"></video>
+
+### Terminal TUI (Textual)
+
+<video controls src="assets/showcase/cli.mp4" width="640"></video>
 
 ---
 
