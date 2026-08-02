@@ -37,6 +37,7 @@
 
 <p align="center">
   <a href="#features">Features</a> ·
+  <a href="#showcase">Showcase</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#shortcuts">Shortcuts</a> ·
@@ -66,6 +67,17 @@ Type a title → Search TMDB → Preview posters → Pick one → Attach
 ```
 
 The poster is embedded **inside** the file — rename it, move it, back it up, and it stays with the video. No server, no scraper, nothing running in the background.
+
+---
+
+<a name="showcase"></a>
+## 📺 Showcase
+
+The tool in action — real usage, no editing.
+
+| Desktop GUI (PyQt6) | Terminal TUI (Textual) |
+|:---:|:---:|
+| <video controls src="assets/showcase/desktop.mp4" width="360"></video> | <video controls src="assets/showcase/cli.mp4" width="360"></video> |
 
 ---
 
