@@ -222,22 +222,33 @@ class BatchWorker(QThread):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
 
-    def __init__(self, video_paths: list, poster_path: str, metadata: dict = None):
+    def __init__(self, video_paths: list, poster_path: str, metadata: dict = None,
+                 cleanup_poster: bool = False):
         super().__init__()
         self.video_paths = video_paths
         self.poster_path = poster_path
         self.metadata = metadata
+        self.cleanup_poster = cleanup_poster
+        self.results = []
 
     def run(self):
         results = []
         total = len(self.video_paths)
-        for i, path in enumerate(self.video_paths):
-            self.progress.emit(i + 1, total, Path(path).name)
-            try:
-                out = attacher.full_attach(path, self.poster_path, metadata=self.metadata)
-                results.append({"path": path, "out": out, "ok": True})
-            except Exception as e:
-                results.append({"path": path, "out": str(e), "ok": False})
+        try:
+            for i, path in enumerate(self.video_paths):
+                self.progress.emit(i + 1, total, Path(path).name)
+                try:
+                    out = attacher.full_attach(path, self.poster_path, metadata=self.metadata)
+                    results.append({"path": path, "out": out, "ok": True})
+                except Exception as e:
+                    results.append({"path": path, "out": str(e), "ok": False})
+        finally:
+            if self.cleanup_poster and self.poster_path and os.path.exists(self.poster_path):
+                try:
+                    os.unlink(self.poster_path)
+                except OSError:
+                    pass
+        self.results = results
         self.finished.emit(results)
 
 
@@ -307,7 +318,7 @@ class MainWindow(QMainWindow):
 
         self.video_path = ""
         self.video_paths = []
-        self.active_video_path = None
+        self.selected_video_paths = set()
         self.current_posters = []
         self.selected_poster = None
         self.local_poster_path = None
@@ -355,6 +366,7 @@ class MainWindow(QMainWindow):
 
         self.file_list = QListWidget()
         self.file_list.setMaximumHeight(80)
+        self.file_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.file_list.itemClicked.connect(self._on_file_clicked)
         self.file_list.itemSelectionChanged.connect(self._on_file_selection_changed)
         self.file_list.hide()
@@ -445,6 +457,13 @@ class MainWindow(QMainWindow):
         self.remove_meta_btn.setToolTip("Strip all title/tags metadata from the video")
         self.remove_meta_btn.clicked.connect(self._remove_metadata)
         lay.addWidget(self.remove_meta_btn)
+
+        self.scrape_meta_btn = QPushButton("Scrape Metadata")
+        self.scrape_meta_btn.setToolTip(
+            "Write TMDB metadata (title, overview, rating, credits) without attaching a poster"
+        )
+        self.scrape_meta_btn.clicked.connect(self._scrape_metadata)
+        lay.addWidget(self.scrape_meta_btn)
 
         return w
 
@@ -592,8 +611,9 @@ class MainWindow(QMainWindow):
                 target = targets[0]
                 out = attacher.full_attach(target, poster_path, metadata=metadata)
                 if out != target:
-                    if self.active_video_path == target:
-                        self.active_video_path = out
+                    if target in self.selected_video_paths:
+                        self.selected_video_paths.discard(target)
+                        self.selected_video_paths.add(out)
                     if self.video_path == target:
                         self.video_path = out
                     for i, p in enumerate(self.video_paths):
@@ -614,23 +634,26 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Done", f"Poster attached to {name}!")
             else:
                 used_batch = True
-                self._batch_attach(poster_path, metadata)
+                self._batch_attach(targets, poster_path, metadata)
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
         finally:
-            if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
-                os.unlink(poster_path)
             if not used_batch:
+                if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
+                    os.unlink(poster_path)
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
 
-    def _batch_attach(self, poster_path, metadata=None):
-        self.progress.setRange(0, len(self.video_paths))
+    def _batch_attach(self, targets, poster_path, metadata=None):
+        self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
-        self.status_label.setText(f"Attaching to 1/{len(self.video_paths)}...")
+        self.status_label.setText(f"Attaching to 1/{len(targets)}...")
 
-        self._batch_worker = BatchWorker(self.video_paths, poster_path, metadata)
+        self._batch_worker = BatchWorker(
+            targets, poster_path, metadata,
+            cleanup_poster=(poster_path != self.local_poster_path),
+        )
         self._batch_worker.progress.connect(self._on_batch_progress)
         self._batch_worker.finished.connect(self._on_batch_done)
         self._batch_worker.start()
@@ -645,8 +668,11 @@ class MainWindow(QMainWindow):
         ok = sum(1 for r in results if r["ok"])
         fail = len(results) - ok
         if fail:
+            detail = "\n".join(
+                f"{Path(r['path']).name}: {r['out']}" for r in results if not r["ok"]
+            )[:2000]
             QMessageBox.warning(self, "Batch Complete",
-                                f"Attached to {ok} files.\n{fail} failed.")
+                                f"Attached to {ok} files.\n{fail} failed.\n\n{detail}")
         else:
             QMessageBox.information(self, "Done",
                                     f"Poster attached to all {ok} files!")
@@ -736,6 +762,48 @@ class MainWindow(QMainWindow):
                 fail.append(f"{v}\n  {e}")
         return fail
 
+    def _scrape_metadata(self):
+        videos = self._active_targets()
+        if not videos:
+            QMessageBox.warning(self, "No Files", "Select a video file first.")
+            return
+        msg = (f"Scrape and write TMDB metadata for {len(videos)} file(s)?\n"
+               "Poster artwork will be kept.")
+        if QMessageBox.question(self, "Scrape Metadata", msg) != QMessageBox.StandardButton.Yes:
+            return
+
+        self.progress.show()
+        self.progress.setRange(0, len(videos))
+        self.progress.setValue(0)
+        self.scrape_meta_btn.setEnabled(False)
+        self.status_label.setText("Scraping metadata...")
+        try:
+            fail = self._batch_scrape_metadata(videos)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            return
+        finally:
+            self.progress.hide()
+            self.scrape_meta_btn.setEnabled(True)
+        ok = len(videos) - len(fail)
+        if fail:
+            QMessageBox.warning(self, "Done", f"Metadata written to {ok} files.\n{fail} failed.")
+        else:
+            QMessageBox.information(self, "Done", f"Metadata written to all {ok} files!")
+        self.status_label.setText(f"Scrape metadata: {ok} succeeded, {len(fail)} failed")
+
+    def _batch_scrape_metadata(self, videos):
+        fail = []
+        for i, v in enumerate(videos):
+            self.progress.setValue(i + 1)
+            self.status_label.setText(f"Scraping {i + 1}/{len(videos)}: {Path(v).name}")
+            try:
+                metadata = tmdb.details_for_path(v, self.current_media)
+                attacher.write_metadata(v, metadata)
+            except Exception as e:
+                fail.append(f"{Path(v).name}: {e}")
+        return fail
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
@@ -754,8 +822,8 @@ class MainWindow(QMainWindow):
             self._load_videos(videos)
 
     def _active_targets(self):
-        if self.active_video_path:
-            return [self.active_video_path]
+        if self.selected_video_paths:
+            return [p for p in self.video_paths if p in self.selected_video_paths]
         return self.video_paths or ([self.video_path] if self.video_path else [])
 
     def _on_file_clicked(self, item: QListWidgetItem):
@@ -766,22 +834,25 @@ class MainWindow(QMainWindow):
         self.search_input.setText(parser.build_search_query(parsed))
 
     def _on_file_selection_changed(self):
-        selected = self.file_list.selectedItems()
-        active = selected[0].data(Qt.ItemDataRole.UserRole) if selected else None
-        if active == self.active_video_path:
+        selected = {
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.file_list.selectedItems()
+            if item.data(Qt.ItemDataRole.UserRole)
+        }
+        if selected == self.selected_video_paths:
             return
-        self.active_video_path = active
-        if active:
+        self.selected_video_paths = selected
+        if selected:
             self.status_label.setText(
-                f"Active: {Path(active).name} — attach/remove apply to this file only")
+                f"{len(selected)} file(s) selected — attach/remove apply to these only")
         elif self.video_paths:
             self.status_label.setText(
-                f"Active file cleared — operations apply to all {len(self.video_paths)} files")
+                f"No files selected — operations apply to all {len(self.video_paths)} files")
 
     def _load_video(self, path):
         self.video_path = path
         self.video_paths = [path]
-        self.active_video_path = None
+        self.selected_video_paths = set()
         self.file_label.setText(path)
         self.file_list.hide()
         self.file_list.clear()
@@ -793,7 +864,7 @@ class MainWindow(QMainWindow):
     def _load_videos(self, paths):
         self.video_path = paths[0]
         self.video_paths = paths
-        self.active_video_path = None
+        self.selected_video_paths = set()
         self.file_label.setText(f"{len(paths)} files selected")
         self.file_list.clear()
         for p in paths:

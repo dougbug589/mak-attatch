@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -17,6 +17,19 @@ from textual.widgets import (
 
 import config
 from core import attacher, parser, tmdb
+
+
+class FileCheckbox(Checkbox):
+    def _on_click(self, event: events.Click) -> None:
+        event.stop()
+
+
+class PathInput(Input):
+    def _on_paste(self, event: events.Paste) -> None:
+        if event.text:
+            self.value = event.text
+        event.prevent_default()
+        event.stop()
 
 
 CSS = """
@@ -44,7 +57,8 @@ class PosterTuiApp(App):
         Binding("ctrl+l", "focus_left_panel", "Left (Search)"),
         Binding("ctrl+m", "focus_mid_panel", "Mid (Posters)"),
         Binding("ctrl+r", "focus_right_panel", "Right (Files)"),
-        Binding("d", "clear_active", "Clear Active"),
+        Binding("space", "toggle_file_selection", "Toggle Selected"),
+        Binding("d", "clear_selection", "Clear Selection"),
     ]
 
     TITLE = "mak-attatch TUI"
@@ -66,7 +80,7 @@ class PosterTuiApp(App):
             yield ListView(id="file_list")
             yield Button("Browse (yazi)", id="browse_btn")
             with Horizontal(id="path_row"):
-                yield Input(placeholder="Paste video path(s)...", id="path_input")
+                yield PathInput(placeholder="Paste video path(s)...", id="path_input")
                 yield Button("Add", id="add_path_btn")
             with Horizontal(id="btn_row"):
                 yield Button("Local Image", id="local_img_btn")
@@ -77,6 +91,7 @@ class PosterTuiApp(App):
                 yield Button("Attach", id="attach_btn", disabled=True)
                 yield Button("Remove", id="remove_btn")
                 yield Button("Rm Metadata", id="remove_meta_btn")
+                yield Button("Scrape Metadata", id="scrape_meta_btn")
                 yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
             yield Label("Ready", id="status")
@@ -85,13 +100,14 @@ class PosterTuiApp(App):
     def __init__(self):
         super().__init__()
         self.video_paths: list[str] = []
-        self.active_video_path: str | None = None
+        self.selected_files: set[str] = set()
         self.results: list[dict] = []
         self.posters: list[dict] = []
         self.selected_poster: dict | None = None
         self.local_poster_path: str | None = None
         self.current_media: dict | None = None
         self._yazi_chooser: str | None = None
+        self._poster_gen = 0
 
     def on_mount(self):
         if not config.get("tmdb_api_key"):
@@ -152,9 +168,7 @@ class PosterTuiApp(App):
                 timeout=300,
             )
             if proc.returncode == 0 and os.path.exists(chooser):
-                path = Path(chooser).read_text().strip()
-                if path:
-                    return path
+                return Path(chooser).read_text().strip()
             return None
         finally:
             try:
@@ -166,12 +180,18 @@ class PosterTuiApp(App):
     def on_browse(self):
         try:
             with self.suspend():
-                path = self._yazi_pick()
+                text = self._yazi_pick()
         except FileNotFoundError:
             self.query_one("#status").update("yazi not found. Install: sudo pacman -S yazi")
             return
-        if path:
-            self._add_video_path(path)
+        if not text:
+            return
+        valid, invalid = self._expand_paths(text)
+        for p in valid:
+            self._add_video_path(p)
+        if invalid:
+            names = ", ".join(Path(p).name for p in invalid[:3])
+            self.query_one("#status").update(f"Not found: {names}")
 
     def _add_video_path(self, path: str):
         if not os.path.isfile(path):
@@ -182,7 +202,9 @@ class PosterTuiApp(App):
             self.query_one("#status").update(f"Already added: {Path(p).name}")
             return
         self.video_paths.append(p)
-        self.query_one("#file_list").append(ListItem(Label(Path(p).name)))
+        idx = len(self.video_paths) - 1
+        row = ListItem(FileCheckbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
+        self.query_one("#file_list").append(row)
         self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
         config.set("last_dir", str(Path(p).parent))
         if len(self.video_paths) == 1:
@@ -196,48 +218,122 @@ class PosterTuiApp(App):
         raw = self.query_one("#path_input").value.strip()
         if not raw:
             return
+        valid, invalid = self._expand_paths(raw)
+        for p in valid:
+            self._add_video_path(p)
+        if invalid:
+            names = ", ".join(Path(p).name for p in invalid[:3])
+            self.query_one("#status").update(f"Not found: {names}")
+        self.query_one("#path_input").value = ""
+
+    def _expand_paths(self, raw: str) -> tuple[list[str], list[str]]:
+        valid: list[str] = []
+        invalid: list[str] = []
         for line in raw.splitlines():
             line = line.strip().strip("\"'")
-            if line:
-                expanded = os.path.expanduser(line)
-                if os.path.isfile(expanded):
-                    self._add_video_path(expanded)
-                else:
-                    self.query_one("#status").update(f"Not found: {line}")
-        self.query_one("#path_input").value = ""
+            if not line:
+                continue
+            expanded = os.path.expanduser(line)
+            if os.path.isfile(expanded):
+                valid.append(expanded)
+                continue
+            parts = expanded.split()
+            if len(parts) > 1 and all(os.path.isfile(p) for p in parts):
+                valid.extend(parts)
+            else:
+                invalid.append(line)
+        return valid, invalid
 
     @on(Button.Pressed, "#clear_btn")
     def on_clear_files(self):
         self.video_paths.clear()
-        self.active_video_path = None
+        self.selected_files.clear()
         self.query_one("#file_list").clear()
         self.query_one("#files_label").update("Video Files:")
         self.query_one("#attach_btn").disabled = True
         self.query_one("#status").update("File list cleared")
+
+    def _file_row(self, idx: int) -> ListItem:
+        return self.query_one(f"#file_row_{idx}")
+
+    def _set_file_selected(self, idx: int, selected: bool):
+        self._file_row(idx).query_one(Checkbox).value = selected
+
+    def _selection_summary(self) -> str:
+        n = len(self.selected_files)
+        if n == 0:
+            return f"operations apply to all {len(self.video_paths)} file(s)"
+        if n == 1:
+            return f"selected: {Path(next(iter(self.selected_files))).name}"
+        return f"{n} file(s) selected"
+
+    def _update_selection_status(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
+        self.query_one("#status").update(self._selection_summary() + " (d to clear)")
+
+    @on(Checkbox.Changed)
+    def on_file_checkbox_changed(self, event: Checkbox.Changed):
+        checkbox = event.control
+        if not checkbox.id or not checkbox.id.startswith("file_cb_"):
+            return
+        try:
+            idx = int(checkbox.id.split("_")[-1])
+        except (IndexError, ValueError):
+            return
+        if 0 <= idx < len(self.video_paths):
+            if event.value:
+                self.selected_files.add(self.video_paths[idx])
+            else:
+                self.selected_files.discard(self.video_paths[idx])
+            self._update_selection_status()
+
+    @on(ListView.Highlighted, "#file_list")
+    def on_file_highlighted(self, event: ListView.Highlighted):
+        idx = event.list_view.index
+        if idx is None or idx >= len(self.video_paths):
+            return
+        parsed = parser.parse_filename(self.video_paths[idx])
+        self.query_one("#search_input").value = parser.build_search_query(parsed)
 
     @on(ListView.Selected, "#file_list")
     def on_file_selected(self, event: ListView.Selected):
         idx = event.list_view.index
         if idx is None or idx >= len(self.video_paths):
             return
-        path = self.video_paths[idx]
-        self.active_video_path = path
-        parsed = parser.parse_filename(path)
-        self.query_one("#search_input").value = parser.build_search_query(parsed)
-        self.query_one("#status").update(
-            f"Active: {Path(path).name} — attach/remove apply to this file only (d to clear)"
-        )
+        self.selected_files = {self.video_paths[idx]}
+        for i in range(len(self.video_paths)):
+            self._set_file_selected(i, i == idx)
+        self._update_selection_status()
 
-    def action_clear_active(self):
-        self.active_video_path = None
+    def action_toggle_file_selection(self):
+        idx = self.query_one("#file_list").index
+        if idx is None:
+            self.query_one("#file_list").index = 0
+            idx = 0
+        if idx >= len(self.video_paths):
+            return
+        path = self.video_paths[idx]
+        if path in self.selected_files:
+            self.selected_files.discard(path)
+        else:
+            self.selected_files.add(path)
+        self._set_file_selected(idx, path in self.selected_files)
+        self._update_selection_status()
+
+    def action_clear_selection(self):
+        self.selected_files.clear()
+        for i in range(len(self.video_paths)):
+            self._set_file_selected(i, False)
         self.query_one("#file_list").index = None
         self.query_one("#status").update(
-            f"Active file cleared — operations apply to all {len(self.video_paths)} files"
+            f"Selection cleared — operations apply to all {len(self.video_paths)} files"
         )
 
     def _targets(self) -> list[str]:
-        if self.active_video_path:
-            return [self.active_video_path]
+        if self.selected_files:
+            return sorted(self.selected_files)
         return self.video_paths
 
     @on(Button.Pressed, "#local_img_btn")
@@ -250,6 +346,7 @@ class PosterTuiApp(App):
             return
         if not path:
             return
+        path = path.splitlines()[0].strip()
         ext = Path(path).suffix.lower()
         if ext not in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
             self.query_one("#status").update("Not a supported image format")
@@ -278,12 +375,23 @@ class PosterTuiApp(App):
                 if info:
                     safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
                     print(f"\n{safe}", flush=True)
+                targets = self._targets()
+                if targets:
+                    print(
+                        f"\nWill attach to {len(targets)} file(s): "
+                        + ", ".join(Path(p).name for p in targets[:5])
+                        + (" ..." if len(targets) > 5 else ""),
+                        flush=True,
+                    )
                 print("\nPress Enter to return...", flush=True)
                 input()
+                print("\033[2J\033[H", end="", flush=True)
+                print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
         except FileNotFoundError:
             pass
         except Exception:  # nosec B110
             pass
+        self._update_selection_status()
 
     @on(Input.Submitted, "#search_input")
     @on(Button.Pressed, "#search_btn")
@@ -340,13 +448,15 @@ class PosterTuiApp(App):
         self.query_one("#poster_label").update(f"Posters ({len(posters)}):")
         gallery = self.query_one("#poster_gallery")
         gallery.clear()
+        self._poster_gen += 1
+        gen = self._poster_gen
         for idx, p in enumerate(posters):
             gallery.append(
                 ListItem(
                     Label(
                         f"{p['width']}x{p['height']} [{p.get('lang') or '??'}]",
                     ),
-                    id=f"cell_{idx}",
+                    id=f"cell_{gen}_{idx}",
                 )
             )
         self.query_one("#status").update("Posters: click to select")
@@ -357,7 +467,7 @@ class PosterTuiApp(App):
         if not item.id or not item.id.startswith("cell_"):
             return
         try:
-            idx = int(item.id.split("_")[1])
+            idx = int(item.id.split("_")[-1])
         except (IndexError, ValueError):
             return
         if 0 <= idx < len(self.posters):
@@ -426,6 +536,7 @@ class PosterTuiApp(App):
             total = len(self._targets())
             ok = 0
             fail = 0
+            first_error = None
             for i, path in enumerate(self._targets()):
                 self.call_from_thread(
                     lambda i=i, p=path: self.query_one("#status").update(
@@ -435,10 +546,17 @@ class PosterTuiApp(App):
                 try:
                     attacher.full_attach(path, poster_path, metadata=metadata)
                     ok += 1
-                except Exception:
+                except Exception as e:
                     fail += 1
+                    if first_error is None:
+                        first_error = f"{Path(path).name}: {e}"
 
-            msg = f"Attached to {ok} file(s)" if fail == 0 else f"Attached: {ok}, Failed: {fail}"
+            if fail == 0:
+                msg = f"Attached to {ok} file(s)"
+            elif first_error:
+                msg = f"Attached: {ok}, Failed: {fail} — {first_error}"
+            else:
+                msg = f"Attached: {ok}, Failed: {fail}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
         except Exception as e:
             self.call_from_thread(lambda: self.query_one("#status").update(f"Error: {e}"))
@@ -499,6 +617,40 @@ class PosterTuiApp(App):
             except Exception:
                 fail += 1
         msg = f"Removed metadata from {ok} file(s)" if fail == 0 else f"Removed metadata: {ok}, Failed: {fail}"
+        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+
+    @on(Button.Pressed, "#scrape_meta_btn")
+    def on_scrape_metadata(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
+        self._do_scrape_metadata()
+
+    @work(thread=True)
+    def _do_scrape_metadata(self):
+        targets = self._targets()
+        total = len(targets)
+        ok = 0
+        fail = 0
+        errors = []
+        for i, path in enumerate(targets):
+            self.call_from_thread(
+                lambda i=i, p=path: self.query_one("#status").update(
+                    f"Scraping metadata {i+1}/{total}: {Path(p).name}"
+                )
+            )
+            try:
+                metadata = tmdb.details_for_path(path, self.current_media)
+                attacher.write_metadata(path, metadata)
+                ok += 1
+            except Exception as e:
+                fail += 1
+                errors.append(f"{Path(path).name}: {e}")
+        if fail == 0:
+            msg = f"Metadata written to {ok} file(s)"
+        else:
+            detail = " | ".join(errors)[:2000]
+            msg = f"Metadata: {ok} ok, {fail} failed — {detail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     @on(Button.Pressed, "#settings_btn")
