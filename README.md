@@ -40,17 +40,14 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#shortcuts">Shortcuts</a> ·
-  <a href="#story">The story</a> ·
+  <a href="#the-story">The story</a> ·
   <a href="#requirements">Requirements</a> ·
   <a href="#license">License</a>
 </p>
 
-<p align="center">
-  <sub>Linux today · <b>Windows &amp; Android on the way</b></sub>
-</p>
-
 ---
 
+<a name="features"></a>
 ## 🎬 Features
 
 | | |
@@ -72,6 +69,7 @@ The poster is embedded **inside** the file — rename it, move it, back it up, a
 
 ---
 
+<a name="quick-start"></a>
 ## ⚡ Quick start
 
 **💠 Arch (AUR)**
@@ -116,6 +114,7 @@ Install the system dependencies from [Requirements](#requirements) first.
 
 ---
 
+<a name="usage"></a>
 ## 🚀 Usage
 
 **🖥️ Desktop GUI**
@@ -148,6 +147,7 @@ mak-attatch-tui
 
 ---
 
+<a name="shortcuts"></a>
 ## ⌨️ Keyboard shortcuts (TUI)
 
 | Key | Action |
@@ -163,6 +163,7 @@ Panels cycle in order: Search → Results → Posters → Files → Buttons. The
 
 ---
 
+<a name="the-story"></a>
 ## 🎞️ The story
 
 > This tool was born out of necessity. There wasn't the budget or the hardware for a proper media server, so the collection just lives on local drives. Kodi handled the library view, but it pulls posters over the network and caches them server-side — and the scrapers would fail or grab the wrong poster for a file. Half the time the library ended up looking worse than a plain file browser.
@@ -173,6 +174,7 @@ Panels cycle in order: Search → Results → Posters → Files → Buttons. The
 
 ---
 
+<a name="requirements"></a>
 ## 📦 Requirements
 
 | Dependency | Version | Notes |
@@ -257,6 +259,7 @@ mak-attatch/
 
 ---
 
+<a name="license"></a>
 ## 📄 License
 
 [MIT](LICENSE)
