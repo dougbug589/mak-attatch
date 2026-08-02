@@ -73,8 +73,6 @@ The poster is embedded **inside** the file — rename it, move it, back it up, a
 <a name="showcase"></a>
 ## 📺 Showcase
 
-The tool in action — real usage, no editing.
-
 ### Desktop GUI (PyQt6)
 
 https://github.com/user-attachments/assets/35b4e52a-d9fe-4fc2-ab74-466f51cbaf39
