@@ -6,17 +6,20 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import (
-    Button, Checkbox, Footer, Header, Input, Label, ListItem, ListView, ProgressBar, Static,
+    Button, Checkbox, DataTable, Footer, Header, Input, Label, ListItem, ListView,
+    ProgressBar, Static,
 )
 
 import config
-from core import attacher, parser, tmdb
+from core import attacher, autoattach, parser, scanner, tmdb
 
 
 class FileCheckbox(Checkbox):
@@ -37,6 +40,8 @@ Screen {
     layout: grid;
     grid-size: 3 1;
     grid-columns: 1fr 2fr 2fr;
+    background: #1e1e2e;
+    color: #cdd6f4;
 }
 #left_col, #mid_col, #right_col {
     border: solid $primary;
@@ -45,11 +50,77 @@ Screen {
 ListView { height: 1fr; }
 #poster_gallery { height: 4fr; }
 #file_list { height: 3fr; }
-#path_row, #btn_row, #action_row { height: 3; }
+#path_row, #action_row { height: auto; }
+#btn_row { height: 3; }
+ProgressBar > .bar {
+    background: $primary;
+}
+#review_screen {
+    width: 100%;
+    height: 100%;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 0 1;
+}
+#review_screen DataTable { height: 1fr; }
+#review_screen > #review_header {
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+#review_screen > #review_summary {
+    height: 1;
+    margin-bottom: 1;
+    color: #a6adc8;
+}
+#review_screen > #review_status {
+    height: 1;
+    color: #a6adc8;
+}
+#review_options {
+    height: auto;
+    margin-bottom: 1;
+}
+#review_buttons {
+    height: 3;
+    dock: bottom;
+}
+#poster_screen {
+    width: 100%;
+    height: 100%;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 0 1;
+}
+#poster_screen DataTable { height: 1fr; }
+#poster_screen > #pp_header {
+    text-style: bold;
+    height: 1;
+    margin-bottom: 1;
+}
+#poster_screen > #pp_status {
+    height: 1;
+    margin-bottom: 1;
+    color: #a6adc8;
+}
+#poster_screen #pp_preview {
+    height: 1fr;
+    border: solid $primary;
+    padding: 1;
+    margin: 0 0 1 0;
+}
+#poster_screen #pp_buttons {
+    height: 3;
+    dock: bottom;
+}
 """
 
 
 class PosterTuiApp(App):
+    TITLE = "mak-attatch TUI"
+    SUB_TITLE = "v1.1.0"
+    CSS = CSS
+
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("ctrl+tab", "focus_next_panel", "Next Panel"),
@@ -59,10 +130,8 @@ class PosterTuiApp(App):
         Binding("ctrl+r", "focus_right_panel", "Right (Files)"),
         Binding("space", "toggle_file_selection", "Toggle Selected"),
         Binding("d", "clear_selection", "Clear Selection"),
+        Binding("ctrl+s", "scan_folder", "Scan Folder"),
     ]
-
-    TITLE = "mak-attatch TUI"
-    CSS = CSS
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -79,19 +148,20 @@ class PosterTuiApp(App):
             yield Label("Video Files:", id="files_label")
             yield ListView(id="file_list")
             yield Button("Browse (yazi)", id="browse_btn")
+            yield Button("Scan Folder", id="scan_btn")
             with Horizontal(id="path_row"):
                 yield PathInput(placeholder="Paste video path(s)...", id="path_input")
                 yield Button("Add", id="add_path_btn")
             with Horizontal(id="btn_row"):
                 yield Button("Local Image", id="local_img_btn")
                 yield Button("Clear Files", id="clear_btn")
-            with Horizontal(id="settings_row"):
                 yield Button("Settings", id="settings_btn")
             with Horizontal(id="action_row"):
                 yield Button("Attach", id="attach_btn", disabled=True)
+                yield Button("Convert", id="convert_btn")
                 yield Button("Remove", id="remove_btn")
-                yield Button("Rm Metadata", id="remove_meta_btn")
-                yield Button("Scrape Metadata", id="scrape_meta_btn")
+                yield Button("Rm Meta", id="remove_meta_btn")
+                yield Button("Scrape", id="scrape_meta_btn")
                 yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
             yield Label("Ready", id="status")
@@ -201,16 +271,125 @@ class PosterTuiApp(App):
         if p in self.video_paths:
             self.query_one("#status").update(f"Already added: {Path(p).name}")
             return
-        self.video_paths.append(p)
-        idx = len(self.video_paths) - 1
-        row = ListItem(FileCheckbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
-        self.query_one("#file_list").append(row)
-        self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
+        self._append_file_rows([p])
         config.set("last_dir", str(Path(p).parent))
         if len(self.video_paths) == 1:
             parsed = parser.parse_filename(p)
             self.query_one("#search_input").value = parser.build_search_query(parsed)
             self.action_search()
+
+    def _append_file_rows(self, paths: list[str]) -> int:
+        added = 0
+        for path in paths:
+            p = os.path.realpath(path)
+            if p in self.video_paths:
+                continue
+            self.video_paths.append(p)
+            idx = len(self.video_paths) - 1
+            row = ListItem(FileCheckbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
+            self.query_one("#file_list").append(row)
+            added += 1
+        self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
+        return added
+
+    def _refresh_file_glyphs(self):
+        for i, p in enumerate(self.video_paths):
+            has = scanner.has_poster(p)
+            checkbox = self.query_one(f"#file_cb_{i}")
+            checkbox.label = ("✓ " + Path(p).name) if has else Path(p).name
+
+    def _set_progress(self, current: int, total: int):
+        progress = self.query_one("#progress")
+        progress.total = total
+        progress.progress = current
+
+    @on(Button.Pressed, "#scan_btn")
+    def on_scan_folder(self):
+        try:
+            with self.suspend():
+                picked = self._yazi_pick()
+        except FileNotFoundError:
+            self.query_one("#status").update("yazi not found. Install: sudo pacman -S yazi")
+            return
+        if not picked:
+            return
+        path = picked.splitlines()[0].strip()
+        if not os.path.isdir(path):
+            self.query_one("#status").update("Scan needs a folder, not a file")
+            return
+        self.query_one("#status").update(f"Scanning {path}...")
+        self._do_scan(path)
+
+    def action_scan_folder(self):
+        self.on_scan_folder()
+
+    @work(thread=True)
+    def _do_scan(self, root: str):
+        try:
+            files = scanner.iter_video_files(root)
+
+            def cb(current, total, group):
+                self.call_from_thread(
+                    lambda: self.query_one("#status").update(
+                        f"Resolving {current}/{total}: {group.title}"
+                    )
+                )
+
+            groups = scanner.classify(files)
+            delay = config.get("scan_api_delay") or 0.25
+            resolved = autoattach.resolve_groups(groups, api_delay=delay, progress=cb)
+            self.call_from_thread(self._on_scan_resolved, resolved)
+        except Exception as e:
+            self.call_from_thread(lambda: self.query_one("#status").update(f"Scan failed: {e}"))
+
+    def _on_scan_resolved(self, resolved: list):
+        ok = sum(1 for e in resolved if e["status"] == "ok")
+        self.query_one("#status").update(f"Matched {ok}/{len(resolved)} titles")
+
+        def handler(result):
+            if not result:
+                self.query_one("#status").update("Scan cancelled")
+                return
+            entries, embed_meta = result
+            paths = [p for e in entries for p in e["group"].files]
+            self._append_file_rows(paths)
+            self.query_one("#status").update(f"Attaching posters to {len(paths)} files...")
+            self._do_auto_attach(entries, scrape_metadata=embed_meta)
+
+        self.push_screen(ReviewScreen(resolved), callback=handler)
+
+    @work(thread=True)
+    def _do_auto_attach(self, entries: list, scrape_metadata: bool = False):
+        try:
+            skip = config.get("scan_skip_existing")
+            delay = config.get("scan_api_delay") or 0.25
+            to_mkv = bool(config.get("convert_to_mkv"))
+
+            def cb(done, total, filepath, status):
+                self.call_from_thread(
+                    lambda: self.query_one("#status").update(
+                        f"Attaching {done}/{total}: {Path(filepath).name}"
+                    )
+                )
+
+            summary = autoattach.attach_groups(
+                entries, skip_existing=skip, scrape_metadata=scrape_metadata,
+                api_delay=delay, to_mkv=to_mkv, progress=cb,
+            )
+            self.call_from_thread(self._on_auto_attach_done, summary)
+        except Exception as e:
+            self.call_from_thread(lambda: self.query_one("#status").update(f"Auto-attach failed: {e}"))
+
+    def _on_auto_attach_done(self, summary: dict):
+        self._refresh_file_glyphs()
+        ok, fail, skipped = summary["ok"], summary["fail"], summary["skipped"]
+        msg = f"Auto-attach: {ok} ok, {skipped} skipped, {fail} failed"
+        self.query_one("#status").update(msg)
+        if fail:
+            detail = " | ".join(summary["errors"][:5])[:2000]
+            self.notify(f"Auto-attach: {fail} failed — {detail}", severity="error")
+        else:
+            self.notify(f"Posters attached to {ok} files")
 
     @on(Input.Submitted, "#path_input")
     @on(Button.Pressed, "#add_path_btn")
@@ -516,6 +695,8 @@ class PosterTuiApp(App):
     def _do_attach(self):
         poster_path = None
         metadata = None
+        to_mkv = bool(config.get("convert_to_mkv"))
+        conversions: dict[str, str] = {}
         try:
             if self.local_poster_path:
                 poster_path = self.local_poster_path
@@ -537,19 +718,30 @@ class PosterTuiApp(App):
             ok = 0
             fail = 0
             first_error = None
+            self.call_from_thread(self._set_progress, 0, total)
             for i, path in enumerate(self._targets()):
                 self.call_from_thread(
                     lambda i=i, p=path: self.query_one("#status").update(
                         f"Attaching {i+1}/{total}: {Path(p).name}"
                     )
                 )
+                self.call_from_thread(self._set_progress, i + 1, total)
                 try:
-                    attacher.full_attach(path, poster_path, metadata=metadata)
+                    out = attacher.full_attach(path, poster_path, metadata=metadata,
+                                               to_mkv=to_mkv)
+                    if out != path:
+                        conversions[path] = out
                     ok += 1
                 except Exception as e:
                     fail += 1
                     if first_error is None:
                         first_error = f"{Path(path).name}: {e}"
+
+            if conversions:
+                for old, new in conversions.items():
+                    if old in self.video_paths:
+                        self.video_paths[self.video_paths.index(old)] = new
+                self.call_from_thread(self._refresh_file_glyphs)
 
             if fail == 0:
                 msg = f"Attached to {ok} file(s)"
@@ -579,12 +771,14 @@ class PosterTuiApp(App):
         total = len(self._targets())
         ok = 0
         fail = 0
+        self.call_from_thread(self._set_progress, 0, total)
         for i, path in enumerate(self._targets()):
             self.call_from_thread(
                 lambda i=i, p=path: self.query_one("#status").update(
                     f"Removing {i+1}/{total}: {Path(p).name}"
                 )
             )
+            self.call_from_thread(self._set_progress, i + 1, total)
             try:
                 attacher.remove_poster(path)
                 ok += 1
@@ -605,12 +799,14 @@ class PosterTuiApp(App):
         total = len(self._targets())
         ok = 0
         fail = 0
+        self.call_from_thread(self._set_progress, 0, total)
         for i, path in enumerate(self._targets()):
             self.call_from_thread(
                 lambda i=i, p=path: self.query_one("#status").update(
                     f"Removing metadata {i+1}/{total}: {Path(p).name}"
                 )
             )
+            self.call_from_thread(self._set_progress, i + 1, total)
             try:
                 attacher.remove_metadata(path)
                 ok += 1
@@ -618,6 +814,57 @@ class PosterTuiApp(App):
                 fail += 1
         msg = f"Removed metadata from {ok} file(s)" if fail == 0 else f"Removed metadata: {ok}, Failed: {fail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
+
+    @on(Button.Pressed, "#convert_btn")
+    def on_convert(self):
+        if not self.video_paths:
+            self.query_one("#status").update("No video files loaded")
+            return
+        self._do_convert()
+
+    @work(thread=True)
+    def _do_convert(self):
+        total = len(self._targets())
+        ok = 0
+        fail = 0
+        conversions: dict[str, str] = {}
+        first_error = None
+        self.call_from_thread(self._set_progress, 0, total)
+        for i, path in enumerate(self._targets()):
+            self.call_from_thread(
+                lambda i=i, p=path: self.query_one("#status").update(
+                    f"Converting {i+1}/{total}: {Path(p).name}"
+                )
+            )
+            self.call_from_thread(self._set_progress, i + 1, total)
+            try:
+                out = attacher.remux_to_mkv(path)
+                if out != path:
+                    conversions[path] = out
+                ok += 1
+            except Exception as e:
+                fail += 1
+                if first_error is None:
+                    first_error = f"{Path(path).name}: {e}"
+        if conversions:
+            for old, new in conversions.items():
+                if old in self.video_paths:
+                    self.video_paths[self.video_paths.index(old)] = new
+            self.call_from_thread(self._refresh_file_glyphs)
+        if fail == 0:
+            msg = f"Converted {ok} file(s) to MKV"
+        elif first_error:
+            msg = f"Converted: {ok}, Skipped/Failed: {fail} — {first_error}"
+        else:
+            msg = f"Converted: {ok}, Skipped/Failed: {fail}"
+        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+        if fail:
+            self.call_from_thread(
+                lambda: self.notify(f"{fail} file(s) not converted — {first_error}",
+                                    severity="warning")
+            )
+        else:
+            self.call_from_thread(lambda: self.notify(f"Converted {ok} file(s) to MKV"))
 
     @on(Button.Pressed, "#scrape_meta_btn")
     def on_scrape_metadata(self):
@@ -633,12 +880,14 @@ class PosterTuiApp(App):
         ok = 0
         fail = 0
         errors = []
+        self.call_from_thread(self._set_progress, 0, total)
         for i, path in enumerate(targets):
             self.call_from_thread(
                 lambda i=i, p=path: self.query_one("#status").update(
                     f"Scraping metadata {i+1}/{total}: {Path(p).name}"
                 )
             )
+            self.call_from_thread(self._set_progress, i + 1, total)
             try:
                 metadata = tmdb.details_for_path(path, self.current_media)
                 attacher.write_metadata(path, metadata)
@@ -669,6 +918,22 @@ class SettingsScreen(Screen):
                 placeholder="Paste API key here...",
                 id="api_key_input",
             )
+            yield Checkbox(
+                "Skip files that already have a poster",
+                value=bool(config.get("scan_skip_existing")),
+                id="skip_existing_check",
+            )
+            yield Checkbox(
+                "Convert MP4 to MKV (lossless remux)",
+                value=bool(config.get("convert_to_mkv")),
+                id="convert_mkv_check",
+            )
+            yield Label("API delay between lookups (seconds)")
+            yield Input(
+                value=str(config.get("scan_api_delay") or 0.25),
+                placeholder="0.25",
+                id="api_delay_input",
+            )
             with Horizontal():
                 yield Button("Save", id="save_btn")
                 yield Button("Cancel", id="cancel_btn")
@@ -677,12 +942,278 @@ class SettingsScreen(Screen):
     def on_save(self):
         key = self.query_one("#api_key_input").value.strip()
         config.set("tmdb_api_key", key)
+        config.set("scan_skip_existing", self.query_one("#skip_existing_check").value)
+        config.set("convert_to_mkv", self.query_one("#convert_mkv_check").value)
+        try:
+            delay = float(self.query_one("#api_delay_input").value.strip())
+            config.set("scan_api_delay", max(0.0, delay))
+        except ValueError:
+            pass
         self.notify("Settings saved!")
         self.dismiss()
 
     @on(Button.Pressed, "#cancel_btn")
     def on_cancel(self):
         self.dismiss()
+
+
+class ReviewScreen(ModalScreen[tuple | None]):
+    """Full-screen review of scanned groups with per-season selection."""
+
+    CSS = """
+    ReviewScreen {
+        layout: vertical;
+        width: 100%;
+        height: 100%;
+    }
+    """
+
+    def __init__(self, resolved: list):
+        super().__init__()
+        self.resolved = resolved
+        self._selected: set[int] = set()
+        self._all_ok = {i for i, e in enumerate(resolved) if e["status"] == "ok"}
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="review_screen"):
+            yield Label("Review Scan Results", id="review_header")
+            yield Static(self._summary(), id="review_summary")
+            with Horizontal(id="review_options"):
+                yield Checkbox("Skip unmatched", id="skip_unmatched", value=True)
+                yield Checkbox("Embed metadata", id="embed_meta", value=False)
+            yield DataTable(id="review_table", cursor_type="row")
+            yield Label("", id="review_status")
+            with Horizontal(id="review_buttons"):
+                yield Button("Cancel", id="review_cancel")
+                yield Button("All", id="review_select_all")
+                yield Button("None", id="review_deselect_all")
+                yield Button("Attach", id="review_attach", variant="primary")
+
+    def on_mount(self):
+        table = self.query_one("#review_table")
+        table.add_columns("✓", "Title", "Season", "Files", "Status", "Poster")
+        for i, e in enumerate(self.resolved):
+            g = e["group"]
+            season = f"S{g.season}" if g.season is not None else "-"
+            status = {"ok": "matched", "no-match": "unmatched", "error": "error"}.get(e["status"], "?")
+            poster = "custom" if e.get("poster") else ("TMDB" if e["status"] == "ok" else "-")
+            marker = "●" if i in self._all_ok else "○"
+            table.add_row(marker, g.title or g.title, season, str(len(g.files)), status, poster)
+        self._selected = set(self._all_ok)
+        self._update_checkmarks()
+        self._update_status()
+
+    def _update_checkmarks(self):
+        table = self.query_one("#review_table")
+        for i in range(len(self.resolved)):
+            marker = "●" if i in self._selected else "○"
+            table.update_cell_at((i, 0), marker)
+
+    def _update_status(self):
+        n = len(self._selected)
+        total = len(self.resolved)
+        self.query_one("#review_status").update(f"Selected: {n}/{total} groups")
+
+    def _summary(self) -> str:
+        ok = sum(1 for e in self.resolved if e["status"] == "ok")
+        unmatched = sum(1 for e in self.resolved if e["status"] == "no-match")
+        errs = sum(1 for e in self.resolved if e["status"] == "error")
+        return f"{ok} matched, {unmatched} unmatched, {errs} errors"
+
+    @on(DataTable.RowSelected, "#review_table")
+    def on_row_selected(self, event: DataTable.RowSelected):
+        row_idx = event.cursor_row
+        if row_idx is None:
+            return
+        if row_idx in self._selected:
+            self._selected.discard(row_idx)
+        elif row_idx in self._all_ok:
+            self._selected.add(row_idx)
+        self._update_checkmarks()
+        self._update_status()
+
+    @on(Button.Pressed, "#review_select_all")
+    def on_select_all(self):
+        self._selected = set(range(len(self.resolved)))
+        self._update_checkmarks()
+        self._update_status()
+
+    @on(Button.Pressed, "#review_deselect_all")
+    def on_deselect_all(self):
+        self._selected.clear()
+        self._update_checkmarks()
+        self._update_status()
+
+    @on(Button.Pressed, "#review_attach")
+    def on_attach(self):
+        entries = [self.resolved[i] for i in sorted(self._selected)]
+        if not entries:
+            self.notify("No groups selected", severity="warning")
+            return
+        embed = self.query_one("#embed_meta").value
+        self.dismiss((entries, embed))
+
+    @on(Button.Pressed, "#review_cancel")
+    def on_cancel(self):
+        self.dismiss(None)
+
+
+class PosterPickScreen(ModalScreen[dict | None]):
+    """Full-screen poster picker with thumbnail preview."""
+
+    CSS = """
+    PosterPickScreen {
+        layout: vertical;
+        width: 100%;
+        height: 100%;
+    }
+    """
+
+    def __init__(self, match: dict):
+        super().__init__()
+        self.match = match
+        self.posters: list[dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="poster_screen"):
+            yield Label(f"Pick Poster — {self.match['title']}", id="pp_header")
+            yield Static("Loading posters...", id="pp_status")
+            yield DataTable(id="pp_table", cursor_type="row")
+            yield Static("", id="pp_preview")
+            with Horizontal(id="pp_buttons"):
+                yield Button("Cancel", id="pp_cancel")
+                yield Button("Preview", id="pp_preview_btn")
+                yield Button("Select", id="pp_select", variant="primary")
+
+    def on_mount(self):
+        self._load()
+
+    @work(thread=True)
+    def _load(self):
+        try:
+            posters = tmdb.get_posters(
+                self.match["id"], self.match["media_type"]
+            )
+            self.app.call_from_thread(self._on_loaded, posters)
+        except Exception as e:
+            self.app.call_from_thread(self._on_error, str(e))
+
+    def _on_loaded(self, posters):
+        self.posters = posters
+        table = self.query_one("#pp_table")
+        table.add_columns("#", "Resolution", "Language", "URL")
+        for i, p in enumerate(posters):
+            lang = p.get("lang") or "??"
+            table.add_row(
+                str(i + 1),
+                f"{p['width']}x{p['height']}",
+                lang,
+                p["thumb_url"],
+            )
+        if posters:
+            self.query_one("#pp_status").update(
+                f"{len(posters)} posters available — Enter to select, P to preview"
+            )
+            self.query_one("#pp_table").cursor_row = 0
+            p = posters[0]
+            lang = p.get("lang") or "??"
+            info = (
+                f"[bold]Poster 1[/]\n"
+                f"Resolution: {p['width']}x{p['height']}\n"
+                f"Language: {lang}\n"
+                f"URL: {p['thumb_url']}"
+            )
+            self.query_one("#pp_preview").update(info)
+        else:
+            self.query_one("#pp_status").update("No posters found")
+
+    def _on_error(self, err):
+        self.query_one("#pp_status").update(f"Error: {err}")
+
+    @on(Button.Pressed, "#pp_preview_btn")
+    def on_preview(self):
+        table = self.query_one("#pp_table")
+        idx = table.cursor_row
+        if idx is None or idx >= len(self.posters):
+            return
+        poster = self.posters[idx]
+        self.query_one("#pp_status").update(f"Previewing poster {idx + 1}...")
+        self._show_preview(poster["thumb_url"], poster)
+
+    @work(thread=True)
+    def _show_preview(self, url: str, poster: dict):
+        tmp = None
+        try:
+            resp = tmdb._fetch(url)
+            fd, tmp = tempfile.mkstemp(suffix=".jpg")
+            os.close(fd)
+            with open(tmp, "wb") as f:
+                f.write(resp.content)
+            os.chmod(tmp, 0o600)
+            info = f"{poster['width']}x{poster['height']} [{poster.get('lang') or '??'}]"
+            self.app.call_from_thread(self._show_native_preview, tmp, info)
+        except Exception:  # nosec B110
+            self.app.call_from_thread(
+                lambda: self.query_one("#pp_status").update("Preview failed")
+            )
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+    def _show_native_preview(self, path: str, info: str):
+        if not shutil.which("chafa"):
+            self.query_one("#pp_status").update(f"Info: {info} (install chafa for preview)")
+            return
+        try:
+            with self.app.suspend():
+                print("\033[2J\033[H", end="", flush=True)
+                for fmt in ("kitty", "sixel", "symbols"):
+                    args = ["chafa", "--format=" + fmt, path]
+                    if fmt == "symbols":
+                        args = ["chafa", "--format=symbols", "--size=60x30",
+                                "--color-space=rgb", "--dither=fs", path]
+                    ret = subprocess.run(args, timeout=10).returncode
+                    if ret == 0:
+                        break
+                safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
+                print(f"\n{safe}", flush=True)
+                print("\nPress Enter to return...", flush=True)
+                input()
+                print("\033[2J\033[H", end="", flush=True)
+                print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
+        except Exception:  # nosec B110
+            pass
+
+    @on(DataTable.RowHighlighted, "#pp_table")
+    def on_highlighted(self, event: DataTable.RowHighlighted):
+        idx = event.cursor_row
+        if idx is None or idx >= len(self.posters):
+            return
+        p = self.posters[idx]
+        lang = p.get("lang") or "??"
+        info = (
+            f"[bold]Poster {idx + 1}[/]\n"
+            f"Resolution: {p['width']}x{p['height']}\n"
+            f"Language: {lang}\n"
+            f"URL: {p['thumb_url']}"
+        )
+        self.query_one("#pp_preview").update(info)
+
+    @on(Button.Pressed, "#pp_select")
+    def on_select_button(self):
+        table = self.query_one("#pp_table")
+        idx = table.cursor_row
+        if idx is not None and 0 <= idx < len(self.posters):
+            self.dismiss(self.posters[idx])
+        else:
+            self.notify("Select a poster first", severity="warning")
+
+    @on(Button.Pressed, "#pp_cancel")
+    def on_cancel(self):
+        self.dismiss(None)
 
 
 def main():

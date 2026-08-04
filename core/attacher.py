@@ -209,12 +209,14 @@ def remove_metadata(video_path: str):
         raise RuntimeError("Metadata removal is only supported for MKV and MP4 files")
 
 
-def to_mkv(video_path: str) -> str:
+def remux_to_mkv(video_path: str) -> str:
     p = _validate_path(video_path, VIDEO_EXTS)
     if p.suffix.lower() in MKV_COMPAT_EXTS:
         return video_path
 
     out = str(p.with_suffix(".mkv"))
+    if os.path.exists(out):
+        raise RuntimeError(f"Target already exists, refusing to overwrite: {out}")
     subprocess.run(
         ["ffmpeg", "-y", "-i", str(p), "-codec", "copy", out],
         check=True, capture_output=True, timeout=600,
@@ -328,7 +330,8 @@ def remove_poster(video_path: str):
         raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 
 
-def full_attach(video_path: str, poster_path: str, metadata: dict = None) -> str:
+def full_attach(video_path: str, poster_path: str, metadata: dict = None,
+                to_mkv: bool = False) -> str:
     p = Path(video_path)
     ext = p.suffix.lower()
 
@@ -338,11 +341,18 @@ def full_attach(video_path: str, poster_path: str, metadata: dict = None) -> str
             write_metadata_mkv(video_path, metadata)
         return video_path
 
+    if to_mkv:
+        mkv = remux_to_mkv(video_path)
+        attach_poster_mkv(mkv, poster_path)
+        if metadata:
+            write_metadata_mkv(mkv, metadata)
+        return mkv
+
     if ext in MP4_COMPAT_EXTS:
         attach_poster_mp4(video_path, poster_path, metadata=metadata)
         return video_path
 
-    mkv = to_mkv(video_path)
+    mkv = remux_to_mkv(video_path)
     attach_poster_mkv(mkv, poster_path)
     if metadata:
         write_metadata_mkv(mkv, metadata)

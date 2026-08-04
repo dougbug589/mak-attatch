@@ -55,6 +55,7 @@
 |:---:|:---:|
 | 🎬 **TMDB search** — movies & TV with full poster selection | 🖼️ **Poster preview** — full-resolution preview before attaching |
 | 📦 **Batch attach** — add many files, one poster attaches to all | 🧹 **Batch remove** — strip art & metadata in one go |
+| 🗂️ **Recursive scan** — walk a folder, group by title & season | 🤖 **Auto-attach** — review matches, then attach in bulk |
 | 🧠 **Smart parsing** — title & year auto-detected from filenames | 📚 **Metadata embed** — title, overview, genres, cast tags |
 | 🖌️ **Local images** — use any JPEG/PNG as a poster | 🧊 **Format-safe** — MKV stays MKV, MP4 stays MP4 |
 | 🖥️ **Desktop GUI** — PyQt6 | 💻 **Terminal TUI** — Textual, for headless / SSH boxes |
@@ -64,6 +65,7 @@
 
 ```
 Type a title → Search TMDB → Preview posters → Pick one → Attach
+Or: Scan a folder → Titles auto-matched → Review → Attach all
 ```
 
 The poster is embedded **inside** the file — rename it, move it, back it up, and it stays with the video. No server, no scraper, nothing running in the background.
@@ -143,7 +145,9 @@ mak-attatch
 4. **Click** a poster to preview, then select it
 5. Hit **Attach Poster**
 
-Drag-and-drop, batch mode and local image posters are supported.
+Or skip the search entirely — hit **Scan Folder** (<kbd>Ctrl</kbd>+<kbd>F</kbd>), pick a directory, and mak-attatch walks it recursively, groups files by title & season, and shows you a review list before attaching everything in bulk. In the review you can **Choose Poster** per show to swap its art, tick **Embed metadata** to write title/overview/genres/cast in at the same time, and **Convert MP4 to MKV** to lossless-remux (stream copy, zero re-encode) before attaching.
+
+Drag-and-drop, batch mode and local image posters are supported. There's also a standalone **Convert to MKV** button that losslessly remuxes the selected files (or all loaded, if none are selected) with a stream copy — no poster involved, originals kept.
 
 **⌨️ Terminal TUI**
 
@@ -157,7 +161,9 @@ mak-attatch-tui
 4. **Arrow keys** to navigate, <kbd>Enter</kbd> to preview
 5. Press <kbd>Enter</kbd> again to close, then **Attach Poster**
 
-**Browse (yazi):** press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark several files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added to the files panel. Multiple paths can also be pasted (newline- or space-separated) or typed in.
+**Browse (yazi):** press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark several files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added to the files panel. Multiple paths can also be pasted (newline- or space-separated) or typed in. **Convert to MKV** losslessly remuxes the selected files (stream copy, no re-encode, originals kept) without touching posters.
+
+**Scan a folder:** press <kbd>Ctrl</kbd>+<kbd>S</kbd> (or the **Scan Folder** button), pick a directory in yazi, review the auto-matched titles, then hit **Attach All**. Series get one lookup per show with the right season attached. Select a row and press **Choose Poster** to swap that show's art, or toggle **Embed metadata** to write title/overview/genres/cast as well. **Settings** also has **Convert MP4 to MKV** — a lossless stream-copy remux (no re-encode) before attaching, keeping the original file.
 
 ---
 
@@ -171,9 +177,10 @@ mak-attatch-tui
 | <kbd>Ctrl</kbd>+<kbd>M</kbd> | Jump to **Posters** panel |
 | <kbd>Ctrl</kbd>+<kbd>R</kbd> | Jump to **Files** panel |
 | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Open **yazi** file browser |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> | **Scan a folder** and auto-attach posters |
 | <kbd>Ctrl</kbd>+<kbd>Q</kbd> | Quit |
 
-Panels cycle in order: Search → Results → Posters → Files → Buttons. The GUI uses standard desktop shortcuts (<kbd>Ctrl</kbd>+<kbd>O</kbd> to open files, <kbd>Ctrl</kbd>+<kbd>V</kbd> to paste).
+Panels cycle in order: Search → Results → Posters → Files → Buttons. The GUI uses standard desktop shortcuts (<kbd>Ctrl</kbd>+<kbd>O</kbd> to open files, <kbd>Ctrl</kbd>+<kbd>F</kbd> to scan a folder, <kbd>Ctrl</kbd>+<kbd>A</kbd> to attach).
 
 ---
 
@@ -270,6 +277,11 @@ mak-attatch/
 │       └── parser.py    # Title extraction from filenames
 ├── ui/                  # PyQt6 desktop GUI
 ├── core/                # Shared core modules
+│   ├── tmdb.py
+│   ├── attacher.py
+│   ├── parser.py
+│   ├── scanner.py       # Recursive folder scan & grouping
+│   └── autoattach.py    # Title matching & bulk attach
 ├── config.py            # Root-level configuration
 ├── convert.sh           # Standalone bash utility
 ├── requirements.txt     # Python dependencies

@@ -185,6 +185,51 @@ class TestAttacher(unittest.TestCase):
         self.assertTrue(str(out).endswith(".mkv"))
         self.assertEqual(_pic_count(str(out)), 1)
 
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264") and _have_ffmpeg_codec("aac"),
+                         "libx264/aac required")
+    def test_mp4_to_mkv_lossless_preserves_codecs(self):
+        v = self.tmp / "conv.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=320x240:rate=10",
+             "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+             "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-c:a", "aac", str(v)],
+            check=True, capture_output=True,
+        )
+        self.assertFalse((self.tmp / "conv.mkv").exists())
+        out = attacher.full_attach(str(v), str(self.img), metadata=_meta(),
+                                   to_mkv=True)
+        self.assertTrue(out.endswith(".mkv"))
+        self.assertTrue(v.exists(), "original mp4 must be kept")
+        self.assertEqual(_pic_count(out), 1)
+        probe = json.loads(subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", out],
+            capture_output=True, timeout=30,
+        ).stdout)
+        codecs = {(s["codec_type"], s["codec_name"]) for s in probe["streams"]}
+        self.assertIn(("video", "h264"), codecs)
+        self.assertIn(("audio", "aac"), codecs)
+        tags = subprocess.run(["ffprobe", "-v", "quiet", "-show_format", out],
+                              capture_output=True).stdout.decode()
+        self.assertIn("Test Movie", tags)
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mp4_full_attach_keeps_mp4_without_flag(self):
+        v = self.tmp / "keep.mp4"
+        _make_video(v, "libx264")
+        out = attacher.full_attach(str(v), str(self.img))
+        self.assertEqual(out, str(v))
+        self.assertTrue(v.exists())
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_to_mkv_refuses_overwrite(self):
+        v = self.tmp / "guard.mp4"
+        _make_video(v, "libx264")
+        existing = self.tmp / "guard.mkv"
+        existing.write_bytes(b"sentinel")
+        with self.assertRaises(RuntimeError):
+            attacher.remux_to_mkv(str(v))
+        self.assertEqual(existing.read_bytes(), b"sentinel")
+
     def test_tags_xml(self):
         xml = attacher.build_mkv_tags_xml(_meta())
         self.assertIn("Test Movie", xml)
@@ -210,9 +255,10 @@ class TestParser(unittest.TestCase):
 
 
 try:
-    from ui.main_window import BatchWorker, MainWindow
+    from ui.main_window import BatchWorker, ConvertWorker, MainWindow
 except Exception:  # PyQt6 not installed (CI test runner)
     BatchWorker = None
+    ConvertWorker = None
     MainWindow = None
 
 
@@ -286,10 +332,12 @@ class TestBatchAttachTargets(unittest.TestCase):
         captured = {}
 
         class FakeWorker:
-            def __init__(self, paths, poster_path, metadata, cleanup_poster=False):
+            def __init__(self, paths, poster_path, metadata, cleanup_poster=False,
+                         to_mkv=False):
                 captured["paths"] = list(paths)
                 captured["poster"] = poster_path
                 captured["cleanup"] = cleanup_poster
+                captured["to_mkv"] = to_mkv
                 self.progress = Mock()
                 self.finished = Mock()
 
@@ -310,6 +358,60 @@ class TestBatchAttachTargets(unittest.TestCase):
         self.assertEqual(captured["paths"], ["/tmp/all-b.mkv"])
         self.assertEqual(captured["poster"], "/tmp/poster.jpg")
 
+
+class TestConvertWorker(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="mak-attatch-convert-test-"))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    @unittest.skipIf(ConvertWorker is None, "PyQt6 not installed")
+    def test_convert_worker_remuxes_mp4_keeping_original(self):
+        v = self.tmp / "c.mp4"
+        _make_video(v, "libx264")
+        worker = ConvertWorker([str(v)])
+        worker.run()
+        self.assertTrue(all(r["ok"] for r in worker.results), worker.results)
+        self.assertEqual(worker.results[0]["out"], str(self.tmp / "c.mkv"))
+        self.assertTrue(v.exists(), "original mp4 must be kept")
+        self.assertTrue((self.tmp / "c.mkv").exists())
+
+    @unittest.skipIf(ConvertWorker is None, "PyQt6 not installed")
+    def test_convert_worker_reports_existing_mkv_skip(self):
+        v = self.tmp / "d.mp4"
+        _make_video(v, "libx264")
+        existing = self.tmp / "d.mkv"
+        existing.write_bytes(b"sentinel")
+        worker = ConvertWorker([str(v)])
+        worker.run()
+        self.assertFalse(worker.results[0]["ok"])
+        self.assertIn("refusing to overwrite", worker.results[0]["error"])
+        self.assertEqual(existing.read_bytes(), b"sentinel")
+
+    @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
+    def test_convert_done_swaps_paths_and_refreshes(self):
+        from unittest.mock import Mock
+
+        from ui import main_window as mw
+
+        window = mw.MainWindow.__new__(mw.MainWindow)
+        window.video_paths = ["/tmp/a.mp4", "/tmp/b.mkv"]
+        window.selected_video_paths = {"/tmp/a.mp4"}
+        window.video_path = "/tmp/a.mp4"
+        window.progress = Mock()
+        window.convert_btn = Mock()
+        window.status_label = Mock()
+        window._refresh_file_rows = Mock()
+        results = [{"path": "/tmp/a.mp4", "out": "/tmp/a.mkv", "ok": True, "error": ""}]
+        with patch.object(mw.QMessageBox, "information"):
+            window._on_convert_done(results)
+        self.assertEqual(window.video_paths, ["/tmp/a.mkv", "/tmp/b.mkv"])
+        self.assertEqual(window.selected_video_paths, {"/tmp/a.mkv"})
+        self.assertEqual(window.video_path, "/tmp/a.mkv")
+        window._refresh_file_rows.assert_called_once()
 
 class TestPosterTuiPosterGallery(unittest.TestCase):
     def test_reloading_posters_does_not_collide_cell_ids(self):

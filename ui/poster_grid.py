@@ -60,6 +60,7 @@ class PosterCard(QFrame):
         layout.addWidget(lang_label)
 
         self.loader = None
+        self._selected = False
         self._load_thumb()
 
     def _load_thumb(self):
@@ -71,6 +72,13 @@ class PosterCard(QFrame):
         self.thumb.setPixmap(
             pixmap.scaled(self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatio,
                           Qt.TransformationMode.SmoothTransformation)
+        )
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        border = "#cba6f7" if selected else "transparent"
+        self.setStyleSheet(
+            f"PosterCard {{ border: 2px solid {border}; border-radius: 6px; }}"
         )
 
     def mousePressEvent(self, event):
@@ -93,6 +101,7 @@ class PosterGrid(QScrollArea):
         self.setWidget(self.container)
 
         self.cards: list[PosterCard] = []
+        self._selected_card: PosterCard | None = None
 
     def load_posters(self, posters: list[dict]):
         self.clear()
@@ -102,8 +111,18 @@ class PosterGrid(QScrollArea):
             self.flow.addWidget(card)
             self.cards.append(card)
 
-    def clear(self):
+    def select_by_poster(self, poster: dict):
         for card in self.cards:
+            same = card.poster.get("id") and card.poster["id"] == poster.get("id")
+            card.set_selected(same)
+            if same:
+                self._selected_card = card
+
+    def clear(self):
+        self._selected_card = None
+        for card in self.cards:
+            if card.loader is not None and card.loader.isRunning():
+                card.loader.wait(2000)
             card.setParent(None)
             card.deleteLater()
         self.cards.clear()

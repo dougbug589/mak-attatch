@@ -79,13 +79,14 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
 
     filtered = []
     for r in results:
-        if r.get("media_type") not in ("movie", "tv"):
+        mt = r.get("media_type") or media_type
+        if mt not in ("movie", "tv"):
             continue
         filtered.append({
             "id": r["id"],
             "title": r.get("title") or r.get("name"),
             "year": (r.get("release_date") or r.get("first_air_date") or "")[:4],
-            "media_type": r["media_type"],
+            "media_type": mt,
             "overview": r.get("overview", ""),
             "poster_path": r.get("poster_path"),
         })

@@ -10,6 +10,9 @@ DEFAULTS = {
     "default_poster_size": "w500",
     "auto_convert_video": True,
     "last_dir": "",
+    "scan_skip_existing": True,
+    "scan_api_delay": 0.25,
+    "convert_to_mkv": False,
 }
 
 
