@@ -77,11 +77,11 @@ The poster is embedded **inside** the file — rename it, move it, back it up, a
 
 ### Desktop GUI (PyQt6)
 
-https://github.com/user-attachments/assets/35b4e52a-d9fe-4fc2-ab74-466f51cbaf39
+https://github.com/user-attachments/assets/28a4d16c-1804-4cb2-8278-3ccf855cf599
 
 ### Terminal TUI (Textual)
 
-https://github.com/user-attachments/assets/8afd62c7-1402-457b-b494-d92403e91b3d
+https://github.com/user-attachments/assets/876f6083-29d0-4347-9e75-0fe5f35e6420
 
 ---
 
