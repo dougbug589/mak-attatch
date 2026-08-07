@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.1
+
+### Documentation
+
+- **Poster lifecycle doc** (`docs/poster-lifecycle.md`) — describes how posters are fetched, staged in `/tmp`, embedded into video files and cleaned up after use, plus the crash-orphan limitation
+- README now links to the poster lifecycle doc from the "How it works per format" section
+
 ## v1.1.0
 
 ### New Features

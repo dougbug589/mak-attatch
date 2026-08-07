@@ -236,6 +236,8 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 
 **Metadata:** tick **Scrape metadata** to embed title, year, overview, genres, rating and cast (Matroska tags for MKV, ffmpeg tags for MP4/MOV). **Remove Metadata** strips the segment title + tags while keeping the poster. Re-attaching always overwrites stale tags.
 
+More detail on how posters are fetched, staged and cleaned up: [Poster lifecycle](docs/poster-lifecycle.md)
+
 ---
 
 ## 🔑 API key
