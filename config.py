@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".config" / "mak-attatch"
@@ -21,7 +22,7 @@ def load() -> dict:
         try:
             with open(CONFIG_FILE) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, PermissionError):
+        except (json.JSONDecodeError, PermissionError, OSError):
             return DEFAULTS.copy()
         for key, val in DEFAULTS.items():
             data.setdefault(key, val)
@@ -31,11 +32,19 @@ def load() -> dict:
 
 def save(config: dict):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    CONFIG_FILE.touch(exist_ok=True)
-    os.chmod(CONFIG_FILE, 0o600)
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
-    os.chmod(CONFIG_FILE, 0o600)
+    fd, tmp = tempfile.mkstemp(dir=CONFIG_DIR, prefix="config.", suffix=".json")
+    os.close(fd)
+    try:
+        with open(tmp, "w") as f:
+            json.dump(config, f, indent=2)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, CONFIG_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def get(key: str):

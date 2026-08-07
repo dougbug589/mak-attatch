@@ -670,7 +670,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_space_separated_blob_adds_all_paths(self):
+    def test_space_separated_blob_ignored(self):
         try:
             import asyncio
             import tempfile
@@ -686,6 +686,34 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         _make_video(Path(a))
         _make_video(Path(b))
         blob = f"{a} {b}"
+
+        async def run():
+            app = tui_app.PosterTuiApp()
+            with patch.object(tui_app.tmdb, "search", return_value=[]):
+                async with app.run_test() as pilot:
+                    app.query_one("#path_input").value = blob
+                    app.on_add_path()
+                    await asyncio.sleep(0.1)
+                    self.assertEqual(len(app.video_paths), 0)
+
+        asyncio.run(run())
+
+    def test_newline_separated_paths_adds_all(self):
+        try:
+            import asyncio
+            import tempfile
+            from pathlib import Path
+
+            import poster_tui.app as tui_app
+        except ImportError:
+            self.skipTest("textual not installed")
+
+        tmp = Path(tempfile.mkdtemp(prefix="mak-tui-nospace-"))
+        a = str(tmp / "alpha.mp4")
+        b = str(tmp / "beta.mp4")
+        _make_video(Path(a))
+        _make_video(Path(b))
+        blob = f"{a}\n{b}"
 
         async def run():
             app = tui_app.PosterTuiApp()

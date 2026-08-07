@@ -415,10 +415,6 @@ class PosterTuiApp(App):
             expanded = os.path.expanduser(line)
             if os.path.isfile(expanded):
                 valid.append(expanded)
-                continue
-            parts = expanded.split()
-            if len(parts) > 1 and all(os.path.isfile(p) for p in parts):
-                valid.extend(parts)
             else:
                 invalid.append(line)
         return valid, invalid
@@ -941,7 +937,11 @@ class SettingsScreen(Screen):
     @on(Button.Pressed, "#save_btn")
     def on_save(self):
         key = self.query_one("#api_key_input").value.strip()
-        config.set("tmdb_api_key", key)
+        try:
+            config.set("tmdb_api_key", key)
+        except ValueError:
+            self.notify("Invalid API key (10-500 characters)", severity="error")
+            return
         config.set("scan_skip_existing", self.query_one("#skip_existing_check").value)
         config.set("convert_to_mkv", self.query_one("#convert_mkv_check").value)
         try:
@@ -998,7 +998,7 @@ class ReviewScreen(ModalScreen[tuple | None]):
             status = {"ok": "matched", "no-match": "unmatched", "error": "error"}.get(e["status"], "?")
             poster = "custom" if e.get("poster") else ("TMDB" if e["status"] == "ok" else "-")
             marker = "●" if i in self._all_ok else "○"
-            table.add_row(marker, g.title or g.title, season, str(len(g.files)), status, poster)
+            table.add_row(marker, g.title, season, str(len(g.files)), status, poster)
         self._selected = set(self._all_ok)
         self._update_checkmarks()
         self._update_status()
@@ -1054,164 +1054,6 @@ class ReviewScreen(ModalScreen[tuple | None]):
         self.dismiss((entries, embed))
 
     @on(Button.Pressed, "#review_cancel")
-    def on_cancel(self):
-        self.dismiss(None)
-
-
-class PosterPickScreen(ModalScreen[dict | None]):
-    """Full-screen poster picker with thumbnail preview."""
-
-    CSS = """
-    PosterPickScreen {
-        layout: vertical;
-        width: 100%;
-        height: 100%;
-    }
-    """
-
-    def __init__(self, match: dict):
-        super().__init__()
-        self.match = match
-        self.posters: list[dict] = []
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="poster_screen"):
-            yield Label(f"Pick Poster — {self.match['title']}", id="pp_header")
-            yield Static("Loading posters...", id="pp_status")
-            yield DataTable(id="pp_table", cursor_type="row")
-            yield Static("", id="pp_preview")
-            with Horizontal(id="pp_buttons"):
-                yield Button("Cancel", id="pp_cancel")
-                yield Button("Preview", id="pp_preview_btn")
-                yield Button("Select", id="pp_select", variant="primary")
-
-    def on_mount(self):
-        self._load()
-
-    @work(thread=True)
-    def _load(self):
-        try:
-            posters = tmdb.get_posters(
-                self.match["id"], self.match["media_type"]
-            )
-            self.app.call_from_thread(self._on_loaded, posters)
-        except Exception as e:
-            self.app.call_from_thread(self._on_error, str(e))
-
-    def _on_loaded(self, posters):
-        self.posters = posters
-        table = self.query_one("#pp_table")
-        table.add_columns("#", "Resolution", "Language", "URL")
-        for i, p in enumerate(posters):
-            lang = p.get("lang") or "??"
-            table.add_row(
-                str(i + 1),
-                f"{p['width']}x{p['height']}",
-                lang,
-                p["thumb_url"],
-            )
-        if posters:
-            self.query_one("#pp_status").update(
-                f"{len(posters)} posters available — Enter to select, P to preview"
-            )
-            self.query_one("#pp_table").cursor_row = 0
-            p = posters[0]
-            lang = p.get("lang") or "??"
-            info = (
-                f"[bold]Poster 1[/]\n"
-                f"Resolution: {p['width']}x{p['height']}\n"
-                f"Language: {lang}\n"
-                f"URL: {p['thumb_url']}"
-            )
-            self.query_one("#pp_preview").update(info)
-        else:
-            self.query_one("#pp_status").update("No posters found")
-
-    def _on_error(self, err):
-        self.query_one("#pp_status").update(f"Error: {err}")
-
-    @on(Button.Pressed, "#pp_preview_btn")
-    def on_preview(self):
-        table = self.query_one("#pp_table")
-        idx = table.cursor_row
-        if idx is None or idx >= len(self.posters):
-            return
-        poster = self.posters[idx]
-        self.query_one("#pp_status").update(f"Previewing poster {idx + 1}...")
-        self._show_preview(poster["thumb_url"], poster)
-
-    @work(thread=True)
-    def _show_preview(self, url: str, poster: dict):
-        tmp = None
-        try:
-            resp = tmdb._fetch(url)
-            fd, tmp = tempfile.mkstemp(suffix=".jpg")
-            os.close(fd)
-            with open(tmp, "wb") as f:
-                f.write(resp.content)
-            os.chmod(tmp, 0o600)
-            info = f"{poster['width']}x{poster['height']} [{poster.get('lang') or '??'}]"
-            self.app.call_from_thread(self._show_native_preview, tmp, info)
-        except Exception:  # nosec B110
-            self.app.call_from_thread(
-                lambda: self.query_one("#pp_status").update("Preview failed")
-            )
-        finally:
-            if tmp:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-
-    def _show_native_preview(self, path: str, info: str):
-        if not shutil.which("chafa"):
-            self.query_one("#pp_status").update(f"Info: {info} (install chafa for preview)")
-            return
-        try:
-            with self.app.suspend():
-                print("\033[2J\033[H", end="", flush=True)
-                for fmt in ("kitty", "sixel", "symbols"):
-                    args = ["chafa", "--format=" + fmt, path]
-                    if fmt == "symbols":
-                        args = ["chafa", "--format=symbols", "--size=60x30",
-                                "--color-space=rgb", "--dither=fs", path]
-                    ret = subprocess.run(args, timeout=10).returncode
-                    if ret == 0:
-                        break
-                safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
-                print(f"\n{safe}", flush=True)
-                print("\nPress Enter to return...", flush=True)
-                input()
-                print("\033[2J\033[H", end="", flush=True)
-                print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
-        except Exception:  # nosec B110
-            pass
-
-    @on(DataTable.RowHighlighted, "#pp_table")
-    def on_highlighted(self, event: DataTable.RowHighlighted):
-        idx = event.cursor_row
-        if idx is None or idx >= len(self.posters):
-            return
-        p = self.posters[idx]
-        lang = p.get("lang") or "??"
-        info = (
-            f"[bold]Poster {idx + 1}[/]\n"
-            f"Resolution: {p['width']}x{p['height']}\n"
-            f"Language: {lang}\n"
-            f"URL: {p['thumb_url']}"
-        )
-        self.query_one("#pp_preview").update(info)
-
-    @on(Button.Pressed, "#pp_select")
-    def on_select_button(self):
-        table = self.query_one("#pp_table")
-        idx = table.cursor_row
-        if idx is not None and 0 <= idx < len(self.posters):
-            self.dismiss(self.posters[idx])
-        else:
-            self.notify("Select a poster first", severity="warning")
-
-    @on(Button.Pressed, "#pp_cancel")
     def on_cancel(self):
         self.dismiss(None)
 

@@ -525,9 +525,6 @@ class ScanReviewDialog(QDialog):
         layout.addWidget(self.table, 1)
 
         button_row = QHBoxLayout()
-        self.re_search = QPushButton("Search unmatched again")
-        self.re_search.setEnabled(False)
-        button_row.addWidget(self.re_search)
         button_row.addStretch(1)
         self.choose_btn = QPushButton("Choose Poster...")
         self.choose_btn.setEnabled(False)
@@ -1255,18 +1252,18 @@ class MainWindow(QMainWindow):
                 self.status_label.setText("Error removing poster")
                 QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
         else:
-            self._batch_remove()
+            self._batch_remove(targets)
 
-    def _batch_remove(self):
+    def _batch_remove(self, targets):
         self.progress.show()
-        self.progress.setRange(0, len(self.video_paths))
+        self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
         self.attach_btn.setEnabled(False)
         ok = 0
         fail = 0
-        for i, path in enumerate(self.video_paths):
+        for i, path in enumerate(targets):
             self.progress.setValue(i + 1)
-            self.status_label.setText(f"Removing {i + 1}/{len(self.video_paths)}: {Path(path).name}")
+            self.status_label.setText(f"Removing {i + 1}/{len(targets)}: {Path(path).name}")
             try:
                 attacher.remove_poster(path)
                 ok += 1

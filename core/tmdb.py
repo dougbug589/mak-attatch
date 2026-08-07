@@ -28,7 +28,6 @@ def _get_session() -> requests.Session:
 
 
 def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Response:
-    _validate_url(url)
     session = _get_session()
     headers = {}
     params = dict(params or {})
@@ -38,11 +37,23 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
             headers["Authorization"] = f"Bearer {api_key}"
         else:
             params["api_key"] = api_key
-    resp = session.get(url, params=params, stream=stream, timeout=TIMEOUT,
-                        allow_redirects=True, headers=headers)
-    _validate_url(resp.url)
-    resp.raise_for_status()
-    return resp
+
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        _validate_url(current)
+        resp = session.get(current, params=params, stream=stream, timeout=TIMEOUT,
+                           allow_redirects=False, headers=headers)
+        if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
+            # Authorization header must not travel across hosts.
+            headers.pop("Authorization", None)
+            params = {}
+            current = resp.urljoin(resp.headers["Location"])
+            resp.close()
+            continue
+        _validate_url(resp.url)
+        resp.raise_for_status()
+        return resp
+    raise TMDBError("Too many redirects")
 
 
 def _validate_url(url: str):

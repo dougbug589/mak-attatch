@@ -135,6 +135,10 @@ def classify(files: list[str]) -> list[MediaGroup]:
 
 def has_poster(path: str) -> bool:
     """Return True when the video already carries attached cover art."""
+    try:
+        path = str(attacher._validate_path(path, attacher.VIDEO_EXTS))
+    except (ValueError, FileNotFoundError):
+        return False
     ext = Path(path).suffix.lower()
     if ext in attacher.MP4_COMPAT_EXTS:
         return attacher._find_attached_pic(path) is not None

@@ -38,6 +38,18 @@ def _secure_temp(suffix: str) -> str:
     return path
 
 
+def _sibling_temp(video_path: str, suffix: str) -> str:
+    """Random temp file in the video's own directory (same filesystem)."""
+    return _secure_temp_in_dir(os.path.dirname(video_path), suffix)
+
+
+def _secure_temp_in_dir(directory: str, suffix: str) -> str:
+    fd, path = tempfile.mkstemp(dir=directory, suffix=suffix)
+    os.close(fd)
+    os.chmod(path, 0o600)
+    return path
+
+
 VIDEO_EXTS = {".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v", ".mpeg", ".mpg"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tiff"}
 MKV_COMPAT_EXTS = {".mkv"}
@@ -55,8 +67,37 @@ MIME_MAP = {
 
 
 def _get_mime(image_path: str) -> str:
+    """Detect the image MIME type from magic bytes, falling back to extension."""
+    try:
+        with open(image_path, "rb") as f:
+            head = f.read(12)
+    except OSError:
+        head = b""
+    if head[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[:2] == b"BM":
+        return "image/bmp"
+    if head[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
     ext = Path(image_path).suffix.lower()
     return MIME_MAP.get(ext, "image/jpeg")
+
+
+def _image_ext_for_mime(mime: str) -> str:
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+        "image/tiff": ".tiff",
+    }.get(mime, ".jpg")
 
 
 def _add_simple(parent: ET.Element, name: str, value: str):
@@ -145,7 +186,7 @@ def _mp4_metadata_flags(metadata: dict) -> list[str]:
 
 def write_metadata_mp4(video_path: str, metadata: dict):
     _validate_path(video_path, VIDEO_EXTS)
-    tmp = str(Path(video_path).with_suffix(".meta_tmp.mp4"))
+    tmp = _sibling_temp(video_path, ".meta_tmp.mp4")
     try:
         result = subprocess.run(
             [
@@ -186,7 +227,7 @@ def remove_metadata(video_path: str):
             check=True, capture_output=True, timeout=60,
         )
     elif ext in MP4_COMPAT_EXTS:
-        tmp = str(Path(video_path).with_suffix(".meta_rm_tmp.mp4"))
+        tmp = _sibling_temp(video_path, ".meta_rm_tmp.mp4")
         try:
             result = subprocess.run(
                 [
@@ -215,7 +256,7 @@ def remux_to_mkv(video_path: str) -> str:
         return video_path
 
     out = str(p.with_suffix(".mkv"))
-    if os.path.exists(out):
+    if os.path.lexists(out):
         raise RuntimeError(f"Target already exists, refusing to overwrite: {out}")
     subprocess.run(
         ["ffmpeg", "-y", "-i", str(p), "-codec", "copy", out],
@@ -229,11 +270,12 @@ def attach_poster_mkv(video_path: str, poster_path: str):
     _validate_path(poster_path, IMAGE_EXTS)
     remove_poster(video_path)
     mime = _get_mime(poster_path)
+    name = f"cover{_image_ext_for_mime(mime)}"
     subprocess.run(
         [
             "mkvpropedit", video_path,
             "--attachment-mime-type", mime,
-            "--attachment-name", "cover.jpg",
+            "--attachment-name", name,
             "--add-attachment", poster_path,
         ],
         check=True, capture_output=True, timeout=60,
@@ -244,6 +286,7 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     _validate_path(video_path, VIDEO_EXTS)
     _validate_path(poster_path, IMAGE_EXTS)
     remove_poster(video_path)
+    tmp = _sibling_temp(video_path, ".tmp.mp4")
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
@@ -254,15 +297,24 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     ]
     if metadata:
         cmd += _mp4_metadata_flags(metadata)
-    cmd += [video_path + ".tmp.mp4"]
-    subprocess.run(
-        cmd,
-        check=True, capture_output=True, timeout=60,
-    )
-    os.replace(video_path + ".tmp.mp4", video_path)
+    cmd += [tmp]
+    try:
+        subprocess.run(
+            cmd,
+            check=True, capture_output=True, timeout=60,
+        )
+        os.replace(tmp, video_path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def _find_attached_pic(video_path: str) -> int | None:
+    try:
+        video_path = str(_validate_path(video_path, VIDEO_EXTS))
+    except (ValueError, FileNotFoundError):
+        return None
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", video_path],
         capture_output=True, timeout=30,
@@ -308,7 +360,7 @@ def remove_poster(video_path: str):
         pic_idx = _find_attached_pic(video_path)
         if pic_idx is None:
             return
-        tmp = str(Path(video_path).with_suffix(".poster_rm_tmp.mp4"))
+        tmp = _sibling_temp(video_path, ".poster_rm_tmp.mp4")
         try:
             result = subprocess.run(
                 [
