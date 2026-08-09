@@ -475,6 +475,8 @@ class ScanReviewDialog(QDialog):
         self.setWindowTitle("Review Scan")
         self.setMinimumSize(760, 480)
         self.resolved = resolved
+        self.action = "attach"
+        self.add_entries = []
 
         layout = QVBoxLayout(self)
 
@@ -487,6 +489,7 @@ class ScanReviewDialog(QDialog):
             ["Video", "Title", "Season", "Status", "Poster"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -557,11 +560,37 @@ class ScanReviewDialog(QDialog):
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
         btn_row.addStretch(1)
+        self.add_btn = QPushButton("Add to List")
+        self.add_btn.setToolTip(
+            "Add the selected rows to the main list without attaching — "
+            "then pick posters and attach them individually"
+        )
+        self.add_btn.clicked.connect(self._add_to_list)
+        btn_row.addWidget(self.add_btn)
         self.attach_all = QPushButton("Attach All")
         self.attach_all.setDefault(True)
         self.attach_all.clicked.connect(self.accept)
         btn_row.addWidget(self.attach_all)
         layout.addLayout(btn_row)
+
+    def _add_to_list(self):
+        rows = [
+            r for r in range(self.table.rowCount())
+            if self.table.item(r, 0).isSelected()
+        ]
+        if not rows:
+            QMessageBox.information(
+                self,
+                "No rows selected",
+                "Select the rows you want to add to the list first, "
+                "then click Add to List.",
+            )
+            return
+        self.add_entries = [
+            e for e in (self._entry_at(r) for r in rows) if e is not None
+        ]
+        self.action = "add"
+        self.accept()
 
     def _update_summary(self):
         ok = sum(1 for e in self.resolved if e["status"] == "ok")
@@ -909,6 +938,14 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Matched {ok}/{len(resolved)} titles")
         dlg = ScanReviewDialog(resolved, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.action == "add":
+            paths = [p for e in dlg.add_entries for p in e["group"].files]
+            self._append_paths(paths)
+            self.status_label.setText(
+                f"Added {len(dlg.add_entries)} group(s) / {len(paths)} file(s) "
+                "to the list — select them and attach posters"
+            )
             return
         entries = [e for e in resolved if e["status"] == "ok"]
         if not dlg.skip_unmatched.isChecked():

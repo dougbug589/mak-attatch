@@ -350,7 +350,16 @@ class PosterTuiApp(App):
             if not result:
                 self.query_one("#status").update("Scan cancelled")
                 return
-            entries, embed_meta = result
+            action = result[0]
+            if action == "add":
+                _, entries = result
+                paths = [p for e in entries for p in e["group"].files]
+                added = self._append_file_rows(paths)
+                self.query_one("#status").update(
+                    f"Added {added} file(s) to the list — select them and attach posters"
+                )
+                return
+            _, entries, embed_meta = result
             paths = [p for e in entries for p in e["group"].files]
             self._append_file_rows(paths)
             self.query_one("#status").update(f"Attaching posters to {len(paths)} files...")
@@ -987,6 +996,7 @@ class ReviewScreen(ModalScreen[tuple | None]):
                 yield Button("Cancel", id="review_cancel")
                 yield Button("All", id="review_select_all")
                 yield Button("None", id="review_deselect_all")
+                yield Button("Add to List", id="review_add")
                 yield Button("Attach", id="review_attach", variant="primary")
 
     def on_mount(self):
@@ -1051,7 +1061,15 @@ class ReviewScreen(ModalScreen[tuple | None]):
             self.notify("No groups selected", severity="warning")
             return
         embed = self.query_one("#embed_meta").value
-        self.dismiss((entries, embed))
+        self.dismiss(("attach", entries, embed))
+
+    @on(Button.Pressed, "#review_add")
+    def on_add_to_list(self):
+        entries = [self.resolved[i] for i in sorted(self._selected)]
+        if not entries:
+            self.notify("No groups selected", severity="warning")
+            return
+        self.dismiss(("add", entries))
 
     @on(Button.Pressed, "#review_cancel")
     def on_cancel(self):
