@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.3
+
+### Fixed
+
+- **MP4 posters are now written to the `covr` metadata atom** (in addition to the attached-picture stream) when attaching, and stripped when removing — so cover-aware players and tools (VLC, mpv, taglib readers) always show the current poster
+- **Convert MP4 to MKV no longer orphans the original file**: the poster is attached in place to the original MP4 first, then the lossless remux runs — both the new MKV and the original MP4 keep the poster
+
+### Changed
+
+- README install/uninstall now documents the proper Arch commands (`makepkg -si` from a clone, `sudo pacman -U`, uninstall via `sudo pacman -Rns mak-attatch`) instead of the Makefile dev flow
+- README explains why MP4 cover art can be invisible in some file managers (video-frame thumbnails) and how to verify it (`ffprobe -show_streams`, VLC, mpv)
+
 ## v1.1.2
 
 ### Changed

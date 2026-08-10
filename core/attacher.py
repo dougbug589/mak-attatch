@@ -294,6 +294,7 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
         "-map", "0", "-map", "1",
         "-c", "copy",
         "-disposition:v:1", "attached_pic",
+        "-metadata:s:v:1", "comment=Cover (front)",
     ]
     if metadata:
         cmd += _mp4_metadata_flags(metadata)
@@ -394,6 +395,7 @@ def full_attach(video_path: str, poster_path: str, metadata: dict = None,
         return video_path
 
     if to_mkv:
+        attach_poster_mp4(video_path, poster_path)
         mkv = remux_to_mkv(video_path)
         attach_poster_mkv(mkv, poster_path)
         if metadata:

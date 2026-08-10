@@ -110,13 +110,15 @@ cd mak-attatch
 makepkg -si
 ```
 
-**🧩 From source**
+**🧩 From GitHub source**
 
 ```bash
 git clone https://github.com/dougbug589/mak-attatch
 cd mak-attatch
-sudo make install
+makepkg -si
 ```
+
+The repo ships a `PKGBUILD`, so `makepkg` builds and installs a proper Arch package — `/usr/bin/mak-attatch`, the TUI, `.desktop` entry and icon. (The included `Makefile`'s `make install` is only a minimal `/usr/local` dev install; the package is the supported path.)
 
 **🚀 Try without installing**
 
@@ -131,8 +133,10 @@ cd mak-attatch
 **🗑️ Uninstall**
 
 ```bash
-sudo make uninstall
+sudo pacman -Rns mak-attatch    # -n also deletes the config, -s removes unneeded deps
 ```
+
+Use `sudo pacman -R mak-attatch` if you want to keep `~/.config/mak-attatch/`.
 
 Install the system dependencies from [Requirements](#requirements) first.
 
@@ -153,7 +157,7 @@ mak-attatch
 4. **Click** a poster to preview, then select it
 5. Hit **Attach Poster**
 
-Or skip the search entirely — hit **Scan Folder** (<kbd>Ctrl</kbd>+<kbd>F</kbd>), pick a directory, and mak-attatch walks it recursively, groups files by title & season, and shows you a review list before attaching everything in bulk. In the review you can **Choose Poster** per show to swap its art, tick **Embed metadata** to write title/overview/genres/cast in at the same time, and **Convert MP4 to MKV** to lossless-remux (stream copy, zero re-encode) before attaching.
+Or skip the search entirely — hit **Scan Folder** (<kbd>Ctrl</kbd>+<kbd>F</kbd>), pick a directory, and mak-attatch walks it recursively, groups files by title & season, and shows you a review list before attaching everything in bulk. In the review you can **Choose Poster** per show to swap its art, tick **Embed metadata** to write title/overview/genres/cast in at the same time, and **Convert MP4 to MKV** to lossless-remux (stream copy, zero re-encode) before attaching — the poster lands on the new MKV **and** stays on the original MP4.
 
 Drag-and-drop, batch mode and local image posters are supported. There's also a standalone **Convert to MKV** button that losslessly remuxes the selected files (or all loaded, if none are selected) with a stream copy — no poster involved, originals kept.
 
@@ -171,7 +175,7 @@ mak-attatch-tui
 
 **Browse (yazi):** press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark several files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added to the files panel. Multiple paths can also be pasted (newline- or space-separated) or typed in. **Convert to MKV** losslessly remuxes the selected files (stream copy, no re-encode, originals kept) without touching posters.
 
-**Scan a folder:** press <kbd>Ctrl</kbd>+<kbd>S</kbd> (or the **Scan Folder** button), pick a directory in yazi, review the auto-matched titles, then hit **Attach All**. Series get one lookup per show with the right season attached. Select a row and press **Choose Poster** to swap that show's art, or toggle **Embed metadata** to write title/overview/genres/cast as well. **Settings** also has **Convert MP4 to MKV** — a lossless stream-copy remux (no re-encode) before attaching, keeping the original file.
+**Scan a folder:** press <kbd>Ctrl</kbd>+<kbd>S</kbd> (or the **Scan Folder** button), pick a directory in yazi, review the auto-matched titles, then hit **Attach All**. Series get one lookup per show with the right season attached. Select a row and press **Choose Poster** to swap that show's art, or toggle **Embed metadata** to write title/overview/genres/cast as well. **Settings** also has **Convert MP4 to MKV** — a lossless stream-copy remux (no re-encode) before attaching; the poster goes to the new MKV while the original MP4 keeps its own copy.
 
 ---
 
@@ -239,10 +243,12 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 | Format | Attach | Remove |
 |:---:|---|---|
 | **MKV** | `mkvpropedit --add-attachment` | `mkvpropedit --delete-attachment` |
-| **MP4/MOV** | `ffmpeg -disposition:v:1 attached_pic` | ffprobe detect + ffmpeg remux strip |
+| **MP4/MOV** | `ffmpeg -disposition:v:1 attached_pic` (+ `covr` atom) | ffprobe detect + ffmpeg remux strip |
 | **Other** (AVI, etc.) | Convert to MKV, then attach | Convert to MKV, then remove |
 
 **Metadata:** tick **Scrape metadata** to embed title, year, overview, genres, rating and cast (Matroska tags for MKV, ffmpeg tags for MP4/MOV). **Remove Metadata** strips the segment title + tags while keeping the poster. Re-attaching always overwrites stale tags.
+
+**Why can't I see the MP4 cover?** MP4s store cover art as an attached-picture stream plus a `covr` tag — players like **VLC** and **mpv** display it, but file managers (e.g. KDE Dolphin) often thumbnail MP4s with a video frame instead. MKV cover art is a container attachment and always shows in file managers. Check MP4 covers in a player or `ffprobe -show_streams file.mp4` (look for a `mjpeg` stream with `attached_pic=1`).
 
 More detail on how posters are fetched, staged and cleaned up: [Poster lifecycle](docs/poster-lifecycle.md)
 

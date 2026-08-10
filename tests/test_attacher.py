@@ -38,6 +38,43 @@ def _pic_count(path: str) -> int:
     return sum(1 for s in streams if s.get("codec_name") in ("mjpeg", "png"))
 
 
+def _covr_jpegs(path: str) -> list[bytes]:
+    """Extract the JPEG payloads of all MP4 'covr' metadata atoms."""
+    data = Path(path).read_bytes()
+
+    def walk(start: int, end: int):
+        boxes = []
+        pos = start
+        while pos + 8 <= end:
+            size = int.from_bytes(data[pos:pos + 4], "big")
+            typ = data[pos + 4:pos + 8]
+            hdr = 8
+            if size == 1:
+                size = int.from_bytes(data[pos + 8:pos + 16], "big")
+                hdr = 16
+            elif size == 0:
+                size = end - pos
+            if size < 8 or pos + size > end:
+                break
+            boxes.append((typ.decode("latin1"), pos + hdr, pos + size))
+            pos += size
+        return boxes
+
+    found = []
+
+    def rec(start: int, end: int):
+        for typ, body, box_end in walk(start, end):
+            if typ == "covr":
+                found.append(data[body + 16:box_end])
+            if typ in ("moov", "udta", "ilst", "stsd"):
+                rec(body, box_end)
+            elif typ == "meta":
+                rec(body + 4, box_end)
+
+    rec(0, len(data))
+    return [j for j in found if j[:2] == b"\xff\xd8"]
+
+
 def _meta() -> dict:
     return {
         "title": "Test Movie",
@@ -117,6 +154,31 @@ class TestAttacher(unittest.TestCase):
         self.assertEqual(_pic_count(str(v)), 1)
         attacher.remove_poster(str(v))
         self.assertEqual(_pic_count(str(v)), 0)
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mp4_attach_writes_covr_atom(self):
+        v = self.tmp / "covr.mp4"
+        _make_video(v, "libx264")
+        self.assertEqual(_covr_jpegs(str(v)), [])
+        attacher.attach_poster_mp4(str(v), str(self.img))
+        covr = _covr_jpegs(str(v))
+        self.assertEqual(len(covr), 1)
+        self.assertEqual(covr[0], self.img.read_bytes())
+        attacher.attach_poster_mp4(str(v), str(self.img))
+        self.assertEqual(len(_covr_jpegs(str(v))), 1, "reattach must not duplicate covr")
+        attacher.remove_poster(str(v))
+        self.assertEqual(_covr_jpegs(str(v)), [], "remove_poster must strip covr")
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mp4_to_mkv_attaches_poster_to_both(self):
+        v = self.tmp / "both.mp4"
+        _make_video(v, "libx264")
+        out = attacher.full_attach(str(v), str(self.img), metadata=_meta(), to_mkv=True)
+        self.assertTrue(out.endswith(".mkv"))
+        self.assertTrue(v.exists(), "original mp4 must be kept")
+        self.assertEqual(_pic_count(str(v)), 1, "original mp4 must keep its poster")
+        self.assertEqual(len(_covr_jpegs(str(v))), 1, "original mp4 must keep covr")
+        self.assertEqual(_pic_count(out), 1, "converted mkv must have its poster")
 
     def _tags(self, path: str) -> list:
         fmt = subprocess.run(["ffprobe", "-v", "quiet", "-show_format", path],
