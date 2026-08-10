@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.2
+
+### Changed
+
+- `scan_skip_existing` now defaults to `False` — folder scans overwrite an existing poster instead of skipping the file. Restore the old behavior with Settings → "Skip files that already have a poster"
+
 ## v1.1.1
 
 ### Documentation
