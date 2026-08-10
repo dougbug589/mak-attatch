@@ -8,6 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config import VERSION
+
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -118,7 +120,7 @@ ProgressBar > .bar {
 
 class PosterTuiApp(App):
     TITLE = "mak-attatch TUI"
-    SUB_TITLE = "v1.1.0"
+    SUB_TITLE = f"v{VERSION}"
     CSS = CSS
 
     BINDINGS = [

@@ -637,7 +637,7 @@ class ScanReviewDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("mak-attatch")
+        self.setWindowTitle(f"mak-attatch v{config.VERSION}")
         self.setMinimumSize(900, 700)
         icon_path = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
         if icon_path.exists():
