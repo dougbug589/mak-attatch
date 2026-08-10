@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+from unittest.mock import MagicMock
 
 from core import tmdb
 
@@ -66,6 +67,33 @@ class SearchTest(unittest.TestCase):
         url, params = fetch.call_args.args[0], fetch.call_args.kwargs["params"]
         self.assertIn("The Godfather", params["query"])
         self.assertEqual(params.get("year"), "1972")
+
+
+class FetchRedirectTest(unittest.TestCase):
+    def test_fetch_follows_302_redirect(self):
+        redirect_resp = MagicMock()
+        redirect_resp.status_code = 302
+        redirect_resp.headers = {"Location": "/p/w500/new.jpg"}
+        redirect_resp.close = MagicMock()
+
+        final_resp = MagicMock()
+        final_resp.status_code = 200
+        final_resp.headers = {"content-type": "image/jpeg"}
+        final_resp.url = "https://image.tmdb.org/p/w500/new.jpg"
+        final_resp.raise_for_status = MagicMock()
+
+        mock_session = MagicMock()
+        mock_session.get.side_effect = [redirect_resp, final_resp]
+
+        with mock.patch("core.tmdb._get_session", return_value=mock_session), \
+             mock.patch("core.tmdb._validate_url"):
+            result = tmdb._fetch("https://image.tmdb.org/p/w500/old.jpg")
+
+        self.assertEqual(mock_session.get.call_count, 2)
+        self.assertEqual(mock_session.get.call_args_list[1][0][0],
+                         "https://image.tmdb.org/p/w500/new.jpg")
+        self.assertEqual(result, final_resp)
+        redirect_resp.close.assert_called_once()
 
 
 if __name__ == "__main__":

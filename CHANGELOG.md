@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.5
+
+### Fixed
+
+- **TMDB redirect handling crashed with `AttributeError`**: `_fetch()` used `resp.urljoin()` which does not exist on `requests.Response`. Replaced with `urllib.parse.urljoin()`, so a 301/302/307/308 redirect from TMDB's API or image CDN is followed correctly instead of crashing. (Bug introduced in v1.1.2, now resolved.)
+
+### Added
+
+- Regression test for the redirect path in `tests/test_tmdb.py` — mocks a 302 response and verifies the resolved URL is fetched without crashing.
+
 ## v1.1.4
 
 ### Added

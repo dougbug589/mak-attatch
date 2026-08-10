@@ -1,6 +1,6 @@
 import requests
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 import config
 
 BASE_URL = "https://api.themoviedb.org/3"
@@ -47,7 +47,7 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
             # Authorization header must not travel across hosts.
             headers.pop("Authorization", None)
             params = {}
-            current = resp.urljoin(resp.headers["Location"])
+            current = urljoin(current, resp.headers["Location"])
             resp.close()
             continue
         _validate_url(resp.url)
