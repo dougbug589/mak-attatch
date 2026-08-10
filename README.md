@@ -1,108 +1,78 @@
-<p align="center">
-  <img src="assets/logo.png" alt="mak-attatch" width="140">
-</p>
+# mak-attatch
 
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/dougbug589/mak-attatch?style=flat-square&label=release&color=cba6f7" alt="release">
-  <img src="https://img.shields.io/github/stars/dougbug589/mak-attatch?style=flat-square&label=stars&color=cba6f7&logo=github&logoColor=white" alt="stars">
-  <img src="https://img.shields.io/github/license/dougbug589/mak-attatch?style=flat-square&label=license&color=cba6f7" alt="license">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-89b4fa?style=flat-square&logo=python&logoColor=white" alt="python">
-  <img src="https://img.shields.io/badge/GUI-PyQt6-89b4fa?style=flat-square&logo=qt&logoColor=white" alt="gui">
-  <img src="https://img.shields.io/badge/TUI-Textual-94e2d5?style=flat-square" alt="tui">
-  <img src="https://img.shields.io/badge/AUR-mak--attatch-94e2d5?style=flat-square&logo=archlinux&logoColor=white" alt="aur">
-  <img src="https://github.com/dougbug589/mak-attatch/actions/workflows/ci.yml/badge.svg" alt="ci">
-</p>
+> Embed TMDB movie & TV cover art directly into your video files.
+> Search, preview, attach — the poster lives *inside* the file.
 
-<p align="center">
-  <img src="https://img.shields.io/github/languages/top/dougbug589/mak-attatch?style=flat-square&color=89b4fa&logo=python&logoColor=white" alt="language">
-  <img src="https://img.shields.io/github/repo-size/dougbug589/mak-attatch?style=flat-square&color=cba6f7" alt="repo size">
-  <img src="https://img.shields.io/github/last-commit/dougbug589/mak-attatch?style=flat-square&color=cba6f7" alt="last commit">
-  <img src="https://img.shields.io/github/contributors/dougbug589/mak-attatch?style=flat-square&color=cba6f7" alt="contributors">
-  <img src="https://img.shields.io/github/issues/dougbug589/mak-attatch?style=flat-square&color=cba6f7" alt="issues">
-  <img src="https://img.shields.io/github/downloads/dougbug589/mak-attatch/total?style=flat-square&color=94e2d5" alt="downloads">
-  <img src="https://img.shields.io/badge/first%20release-2026--07--31-94e2d5?style=flat-square" alt="first release">
-</p>
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![AUR](https://img.shields.io/badge/AUR-mak--attatch-1793D1?logo=arch-linux)](https://aur.archlinux.org/packages/mak-attatch)
+[![Release](https://img.shields.io/github/v/release/dougbug589/mak-attatch)](https://github.com/dougbug589/mak-attatch/releases)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/MKV-native-cba6f7?style=flat-square" alt="mkv">
-  <img src="https://img.shields.io/badge/MP4%20%26%20MOV-ffmpeg-94e2d5?style=flat-square" alt="mp4/mov">
-  <img src="https://img.shields.io/badge/Linux-supported-a6e3a1?style=flat-square&logo=linux&logoColor=white" alt="linux">
-  <img src="https://img.shields.io/badge/Windows-coming%20soon-9399b2?style=flat-square&logo=windows&logoColor=white" alt="windows">
-  <img src="https://img.shields.io/badge/Android-coming%20soon-9399b2?style=flat-square&logo=android&logoColor=white" alt="android">
-</p>
+**mak-attatch** fetches high-quality poster art from [The Movie Database](https://www.themoviedb.org) and embeds it into your MKV, MP4, and MOV files. The art travels with the video — no external scrapers, no network dependency, no server required.
 
-<p align="center">
-  Search <b>TMDB</b> · Preview posters · Attach cover art to your video files — <b>MKV</b> native, <b>MP4 / MOV / AVI</b> converted automatically.
-</p>
-
-<p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#showcase">Showcase</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#usage">Usage</a> ·
-  <a href="#shortcuts">Shortcuts</a> ·
-  <a href="#the-story">The story</a> ·
-  <a href="#requirements">Requirements</a> ·
-  <a href="#license">License</a>
-</p>
+**Two interfaces:** a polished **PyQt6 desktop GUI** and a keyboard-driven **Textual TUI** for terminals and SSH sessions.
 
 ---
 
-<a name="features"></a>
-## 🎬 Features
+## Table of Contents
 
-|  |  |
-|:---:|:---:|
-| 🎬 **TMDB search** — movies & TV with full poster selection | 🖼️ **Poster preview** — full-resolution preview before attaching |
-| 📦 **Batch attach** — add many files, one poster attaches to all | 🧹 **Batch remove** — strip art & metadata in one go |
-| 🗂️ **Recursive scan** — walk a folder, group by title & season | 🤖 **Auto-attach** — review matches, then attach in bulk |
-| 🧠 **Smart parsing** — title & year auto-detected from filenames | 📚 **Metadata embed** — title, overview, genres, cast tags |
-| 🖌️ **Local images** — use any JPEG/PNG as a poster | 🧊 **Format-safe** — MKV stays MKV, MP4 stays MP4 |
-| 🖥️ **Desktop GUI** — PyQt6 | 💻 **Terminal TUI** — Textual, for headless / SSH boxes |
-| 🧩 **yazi integration** — multi-select files in the TUI | 🏝️ **Self-contained art** — lives *in* the file, works offline |
-
-**How it works:**
-
-```
-Type a title → Search TMDB → Preview posters → Pick one → Attach
-Or: Scan a folder → Titles auto-matched → Review → Attach all
-```
-
-The poster is embedded **inside** the file — rename it, move it, back it up, and it stays with the video. No server, no scraper, nothing running in the background.
+- [Features](#features)
+- [Showcase](#showcase)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+- [How It Works](#how-it-works)
+- [Troubleshooting](#troubleshooting)
+- [Requirements](#requirements)
+- [Project Structure](#project-structure)
+- [Changelog](#changelog)
+- [License](#license)
 
 ---
 
-<a name="showcase"></a>
-## 📺 Showcase
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **TMDB Search** | Search movies and TV shows with full poster browsing |
+| **Poster Preview** | Full-resolution preview before committing |
+| **Smart Filename Parsing** | Auto-detects title and year from filenames (via `guessit`) |
+| **Batch Processing** | Attach one poster to many files, or scan an entire folder |
+| **Recursive Folder Scan** | Walks directories, groups by series & season, auto-matches titles |
+| **Metadata Embedding** | Writes title, overview, genres, rating, cast into file tags |
+| **Local Images** | Use any JPEG/PNG as a custom poster |
+| **Format Safe** | MKV stays MKV; MP4/MOV keep their container (optional MKV remux) |
+| **Batch Remove** | Strip art & metadata in one operation |
+| **Offline Ready** | Once attached, the art is self-contained in the file |
+
+**Supported formats:**
+- **MKV** — native attachment via `mkvpropedit`
+- **MP4 / MOV** — embedded `attached_pic` stream + `covr` metadata atom
+- **Other formats** (AVI, etc.) — losslessly remuxed to MKV first
+
+---
+
+## Showcase
 
 ### Desktop GUI (PyQt6)
 
-
-
-https://github.com/user-attachments/assets/7ca0336b-19af-4282-8b57-279fa5124dd0
-
-
+*Search TMDB, browse posters, preview, attach — all in one window.*
 
 ### Terminal TUI (Textual)
 
-
-
-https://github.com/user-attachments/assets/aa220a5f-ac00-4d3f-808f-68d9f3b367be
-
-
+*Keyboard-driven workflow with `yazi` file browser integration.*
 
 ---
 
-<a name="quick-start"></a>
-## ⚡ Quick start
+## Installation
 
-**💠 Arch (AUR)**
+### Arch Linux (AUR) — Recommended
 
 ```bash
 yay -S mak-attatch
 ```
 
-Or build it manually:
+Or build manually:
 
 ```bash
 git clone https://aur.archlinux.org/mak-attatch.git
@@ -110,153 +80,252 @@ cd mak-attatch
 makepkg -si
 ```
 
-**🧩 From GitHub source**
+This installs the full package: `/usr/bin/mak-attatch`, `/usr/bin/mak-attatch-tui`, `.desktop` entry, and icon.
+
+### From Source
 
 ```bash
-git clone https://github.com/dougbug589/mak-attatch
+git clone https://github.com/dougbug589/mak-attatch.git
 cd mak-attatch
-makepkg -si
+./setup.sh          # creates .venv and installs Python deps
+.venv/bin/python main.py       # GUI
+.venv/bin/python poster-tui    # TUI
 ```
 
-The repo ships a `PKGBUILD`, so `makepkg` builds and installs a proper Arch package — `/usr/bin/mak-attatch`, the TUI, `.desktop` entry and icon. (The included `Makefile`'s `make install` is only a minimal `/usr/local` dev install; the package is the supported path.)
-
-**🚀 Try without installing**
+### Uninstall
 
 ```bash
-git clone https://github.com/dougbug589/mak-attatch
-cd mak-attatch
-./setup.sh
-.venv/bin/python main.py       # desktop GUI
-.venv/bin/python poster-tui    # terminal TUI
+sudo pacman -Rns mak-attatch   # removes package + config + unused deps
 ```
-
-**🗑️ Uninstall**
-
-```bash
-sudo pacman -Rns mak-attatch    # -n also deletes the config, -s removes unneeded deps
-```
-
-Use `sudo pacman -R mak-attatch` if you want to keep `~/.config/mak-attatch/`.
-
-Install the system dependencies from [Requirements](#requirements) first.
 
 ---
 
-<a name="usage"></a>
-## 🚀 Usage
+## Usage
 
-**🖥️ Desktop GUI**
+### Desktop GUI
 
 ```bash
 mak-attatch
 ```
 
-1. Enter your TMDB API key on first launch
-2. **Browse** for a video file, or **type** a movie/show name and search
-3. **Double-click** a result to browse its posters
-4. **Click** a poster to preview, then select it
-5. Hit **Attach Poster**
+1. **First launch:** Enter your free TMDB API key (prompted automatically).
+2. **Add files:** Browse or drag-and-drop video files.
+3. **Search:** Type a title and hit **Search TMDB**.
+4. **Pick a poster:** Double-click a result, browse posters, click to preview.
+5. **Attach:** Hit **Attach Poster**.
 
-Or skip the search entirely — hit **Scan Folder** (<kbd>Ctrl</kbd>+<kbd>F</kbd>), pick a directory, and mak-attatch walks it recursively, groups files by title & season, and shows you a review list before attaching everything in bulk. In the review you can **Choose Poster** per show to swap its art, tick **Embed metadata** to write title/overview/genres/cast in at the same time, and **Convert MP4 to MKV** to lossless-remux (stream copy, zero re-encode) before attaching — the poster lands on the new MKV **and** stays on the original MP4.
+**Folder Scan (Ctrl+F):** Pick a directory. mak-attatch recursively scans, groups files by title/season, auto-matches TMDB entries, and shows a review list. Hit **Attach All** to process everything. Toggle **Embed metadata** to write tags, or **Convert MP4 to MKV** for a lossless remux.
 
-Drag-and-drop, batch mode and local image posters are supported. There's also a standalone **Convert to MKV** button that losslessly remuxes the selected files (or all loaded, if none are selected) with a stream copy — no poster involved, originals kept.
-
-**⌨️ Terminal TUI**
+### Terminal TUI
 
 ```bash
 mak-attatch-tui
 ```
 
-1. Enter your TMDB API key on first launch
-2. **Search** for a movie or TV show
-3. Press <kbd>Enter</kbd> to load posters
-4. **Arrow keys** to navigate, <kbd>Enter</kbd> to preview
-5. Press <kbd>Enter</kbd> again to close, then **Attach Poster**
+1. **Search:** Type a title, press `Enter`.
+2. **Browse posters:** Arrow keys to navigate, `Enter` to preview.
+3. **Attach:** Close preview, select **Attach Poster**.
 
-**Browse (yazi):** press <kbd>Ctrl</kbd>+<kbd>F</kbd>, mark several files with <kbd>Space</kbd>, press <kbd>Enter</kbd> — all of them are added to the files panel. Multiple paths can also be pasted (newline- or space-separated) or typed in. **Convert to MKV** losslessly remuxes the selected files (stream copy, no re-encode, originals kept) without touching posters.
+**File browser:** Click the **Browse (yazi)** button (or use the button in the Files panel). Multi-select files with `Space`, press `Enter` to load them.
 
-**Scan a folder:** press <kbd>Ctrl</kbd>+<kbd>S</kbd> (or the **Scan Folder** button), pick a directory in yazi, review the auto-matched titles, then hit **Attach All**. Series get one lookup per show with the right season attached. Select a row and press **Choose Poster** to swap that show's art, or toggle **Embed metadata** to write title/overview/genres/cast as well. **Settings** also has **Convert MP4 to MKV** — a lossless stream-copy remux (no re-encode) before attaching; the poster goes to the new MKV while the original MP4 keeps its own copy.
+**Folder scan (Ctrl+S):** Scan a directory, review auto-matches, attach in bulk.
 
 ---
 
-<a name="shortcuts"></a>
-## ⌨️ Keyboard shortcuts (TUI)
+## Keyboard Shortcuts
+
+### TUI
 
 | Key | Action |
-|:---:|---|
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle panels forward / backward |
-| <kbd>Ctrl</kbd>+<kbd>L</kbd> | Jump to **Search** panel |
-| <kbd>Ctrl</kbd>+<kbd>M</kbd> | Jump to **Posters** panel |
-| <kbd>Ctrl</kbd>+<kbd>R</kbd> | Jump to **Files** panel |
-| <kbd>Ctrl</kbd>+<kbd>F</kbd> | Open **yazi** file browser |
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> | **Scan a folder** and auto-attach posters |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | Quit |
+|-----|--------|
+| `q` | Quit |
+| `Tab` / `Shift+Tab` | Cycle panels |
+| `Ctrl+L` | Focus Search panel |
+| `Ctrl+M` | Focus Posters panel |
+| `Ctrl+R` | Focus Files panel |
+| `Ctrl+S` | Scan folder & auto-attach |
+| `Space` | Toggle file selection |
+| `d` | Clear selection |
 
-Panels cycle in order: Search → Results → Posters → Files → Buttons. The GUI uses standard desktop shortcuts (<kbd>Ctrl</kbd>+<kbd>O</kbd> to open files, <kbd>Ctrl</kbd>+<kbd>F</kbd> to scan a folder, <kbd>Ctrl</kbd>+<kbd>A</kbd> to attach).
+### GUI
 
----
-
-<a name="the-story"></a>
-## 🎞️ The story
-
-> This tool was born out of necessity. There wasn't the budget or the hardware for a proper media server, so the collection just lives on local drives. Kodi handled the library view, but it pulls posters over the network and caches them server-side — and the scrapers would fail or grab the wrong poster for a file. Half the time the library ended up looking worse than a plain file browser.
->
-> Manual attachment via `mkvpropedit --add-attachment` worked — the thumbnail showed up right in the file browser. But typing those flags out for every single file got old fast, and between re-downloading posters and guessing which one matched, it was still a chore.
->
-> mak-attatch is a small tool that puts it all in one place: search TMDB, preview the posters, attach with one click. The art gets embedded *inside* the file, so it moves with the video, works offline, and no server or scraper has to be running to keep the library looking right.
+| Key | Action |
+|-----|--------|
+| `Ctrl+O` | Open files |
+| `Ctrl+F` | Scan folder |
+| `Ctrl+A` | Attach poster |
 
 ---
 
-<a name="requirements"></a>
-## 📦 Requirements
+## How It Works
 
-| Dependency | Version | Notes |
-|---|:---:|---|
-| Python | 3.10+ | |
-| ffmpeg | latest | MP4/MOV poster attach & remove |
-| mkvtoolnix-cli | latest | `mkvpropedit` for MKV |
-| TMDB API key | free | Prompted on first launch; stored in `~/.config/mak-attatch/` |
+### Poster Attachment by Format
 
-**TUI extras:** `python-textual` (framework) · `yazi` (file browser, optional) · `chafa` (terminal poster preview)
+| Format | Method | Removal |
+|--------|--------|---------|
+| **MKV** | `mkvpropedit --add-attachment` | `mkvpropedit --delete-attachment` |
+| **MP4 / MOV** | `ffmpeg -disposition:v:1 attached_pic` + `covr` atom | `ffprobe` detect + `ffmpeg` remux strip |
+| **Other** (AVI, etc.) | Convert to MKV, then attach | Remux to MKV, then remove |
 
-<details>
-<summary>Show install commands (Arch / Debian / Fedora)</summary>
+### Metadata Tags
 
+| Field | MKV | MP4/MOV |
+|-------|-----|---------|
+| Title | `TITLE` tag | `title` metadata |
+| Year | `DATE_RELEASED` | `date` |
+| Overview | `SYNOPSIS` | `description` |
+| Genres | `GENRE` | `genre` |
+| Rating | `RATING` | — |
+| Cast | `ACTOR` + `CHARACTER` | — |
+| Directors | `DIRECTOR` | `author` |
+
+### Poster Lifecycle
+
+1. **Search** — Query TMDB API for title matches.
+2. **Select** — User picks a poster from available sizes.
+3. **Download** — Image fetched to a temp file (validated for size & type).
+4. **Attach** — Embedded into the video container.
+5. **Cleanup** — Temp files removed; original poster file preserved.
+
+---
+
+## Troubleshooting
+
+### MP4 covers don't show in my file manager
+
+MP4 cover art is stored as an `attached_pic` video stream plus a `covr` metadata atom. This is fully standards-compliant and works in **VLC**, **mpv**, **iTunes**, and most media players.
+
+However, some file managers (notably **KDE Dolphin** with the `ffmpegthumbnailer` plugin) generate thumbnails from the primary video stream instead of the embedded cover. MKV cover art (a container attachment) does not have this issue.
+
+**Workaround for KDE Dolphin:**
+1. Open **Dolphin → Settings → Configure Dolphin → General → Previews**
+2. **Uncheck** `Video Files (ffmpegthumbnailer)`
+3. **Keep checked** `Video Files (ffmpegthumbs)`
+4. Clear cache: `rm -rf ~/.cache/thumbnails/*`
+5. Restart Dolphin
+
+Verify your file has the cover embedded:
 ```bash
-# Arch
+ffprobe -show_streams file.mp4 | grep -E "(mjpeg|attached_pic)"
+```
+
+### "No TMDB match found"
+
+- Check your API key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)
+- Try simplifying the filename (remove extra tags like `1080p`, `BluRay`, etc.)
+- Use the manual search box to type the exact title
+
+### Batch scan groups files wrong
+
+The scanner parses filenames with `guessit` and falls back to folder names for series. If a file is misgrouped:
+- Ensure season folders are named clearly (`Season 1`, `S01`, etc.)
+- Avoid generic filenames like `episode01.mkv` without a parent folder name
+
+---
+
+## Requirements
+
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.10+ | Runtime |
+| ffmpeg | latest | MP4/MOV attach & remove |
+| mkvtoolnix-cli | latest | `mkvpropedit` for MKV |
+| python-pyqt6 | latest | Desktop GUI |
+| python-requests | latest | TMDB API client |
+| python-guessit | latest | Filename parsing |
+| TMDB API key | free | Poster search (prompted on first launch) |
+
+**TUI extras:** `python-textual` · `yazi` (file browser) · `chafa` (terminal image preview)
+
+### Install Commands
+
+**Arch:**
+```bash
 sudo pacman -S python python-pyqt6 python-requests python-guessit ffmpeg mkvtoolnix-cli
-sudo pacman -S python-textual yazi chafa          # TUI extras
+sudo pacman -S python-textual yazi chafa  # TUI extras
+```
 
-# Debian/Ubuntu
+**Debian/Ubuntu:**
+```bash
 sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
+```
 
-# Fedora
+**Fedora:**
+```bash
 sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
 ```
 
-</details>
+---
+
+## Project Structure
+
+```
+mak-attatch/
+├── main.py              # Desktop GUI entry point
+├── poster-tui           # Terminal TUI entry point
+├── poster_tui/          # TUI application code
+│   ├── __init__.py
+│   └── app.py
+├── ui/                  # PyQt6 desktop GUI widgets
+├── core/                # Shared core modules
+│   ├── tmdb.py          # TMDB API client
+│   ├── attacher.py      # MKV/MP4 attachment engine
+│   ├── parser.py        # Filename title extraction
+│   ├── scanner.py       # Recursive folder scan & grouping
+│   └── autoattach.py    # Title matching & bulk attach
+├── config.py            # Configuration management
+├── convert.sh           # Standalone bash utility (single file)
+├── requirements.txt     # Python dependencies
+├── setup.sh             # Virtual environment setup
+├── PKGBUILD             # Arch Linux package build
+├── Makefile             # Install/uninstall targets
+├── tests/               # Test suite (72 tests)
+│   ├── test_attacher.py
+│   ├── test_autoattach.py
+│   ├── test_scanner.py
+│   └── test_tmdb.py
+└── assets/              # Logos and screenshots
+```
 
 ---
 
-## 🛠️ How it works per format
+## Changelog
 
-| Format | Attach | Remove |
-|:---:|---|---|
-| **MKV** | `mkvpropedit --add-attachment` | `mkvpropedit --delete-attachment` |
-| **MP4/MOV** | `ffmpeg -disposition:v:1 attached_pic` (+ `covr` atom) | ffprobe detect + ffmpeg remux strip |
-| **Other** (AVI, etc.) | Convert to MKV, then attach | Convert to MKV, then remove |
+### v1.1.5 — 2026-08-10
+- **Fixed** `core/tmdb.py`: Redirect handling used non-existent `resp.urljoin()`. Replaced with `urllib.parse.urljoin()`. Fixes an `AttributeError` crash when TMDB image CDN returns a redirect.
+- **Added** Regression test for redirect path in `tests/test_tmdb.py`.
 
-**Metadata:** tick **Scrape metadata** to embed title, year, overview, genres, rating and cast (Matroska tags for MKV, ffmpeg tags for MP4/MOV). **Remove Metadata** strips the segment title + tags while keeping the poster. Re-attaching always overwrites stale tags.
+### v1.1.4 — 2026-08-10
+- Added version display in GUI window title and TUI header.
 
-**Why can't I see the MP4 cover?** MP4s store cover art as an attached-picture stream plus a `covr` tag — players like **VLC** and **mpv** display it, but file managers (e.g. KDE Dolphin) often thumbnail MP4s with a video frame instead. MKV cover art is a container attachment and always shows in file managers. Check MP4 covers in a player or `ffprobe -show_streams file.mp4` (look for a `mjpeg` stream with `attached_pic=1`).
+### v1.1.3 — 2026-08-10
+- Fixed MP4 `covr` atom writing on attach.
+- MP4-to-MKV conversion now preserves the poster on both files.
 
-More detail on how posters are fetched, staged and cleaned up: [Poster lifecycle](docs/poster-lifecycle.md)
+### v1.1.2 — 2026-08-07
+- Hardened subprocess temp files (unpredictable names via `mkstemp`).
+- Added magic-byte MIME detection for image validation.
+- Atomic config writes to prevent corruption.
+- Per-hop redirect validation in TMDB fetch.
+- Folder scans overwrite existing posters by default.
 
 ---
 
-## 🔑 API key
+## Standalone Utility
 
-Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both apps prompt for it on first launch. Stored in:
+For single-file operations without launching the full app:
+
+```bash
+./convert.sh
+```
+
+Interactive prompts for add/remove mode, video path, and poster image. Handles format conversion automatically.
+
+---
+
+## API Key
+
+Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both the GUI and TUI prompt for it on first launch. Stored locally in:
 
 ```
 ~/.config/mak-attatch/config.json
@@ -264,54 +333,6 @@ Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/setti
 
 ---
 
-## 🧰 Standalone utility
+## License
 
-No app? `convert.sh` attaches or removes a poster from a single file:
-
-```bash
-./convert.sh
-```
-
-Prompts for add/remove mode, video path and an optional poster image. Handles format conversion and attachment natively.
-
----
-
-## 📁 Project structure
-
-<details>
-<summary>Show project structure</summary>
-
-```
-mak-attatch/
-├── main.py              # Desktop GUI entry point
-├── poster-tui           # Terminal TUI entry point
-├── poster_tui/          # TUI application
-│   ├── app.py
-│   └── core/
-│       ├── tmdb.py      # TMDB API client
-│       ├── attacher.py  # MKV/MP4 attachment logic
-│       └── parser.py    # Title extraction from filenames
-├── ui/                  # PyQt6 desktop GUI
-├── core/                # Shared core modules
-│   ├── tmdb.py
-│   ├── attacher.py
-│   ├── parser.py
-│   ├── scanner.py       # Recursive folder scan & grouping
-│   └── autoattach.py    # Title matching & bulk attach
-├── config.py            # Root-level configuration
-├── convert.sh           # Standalone bash utility
-├── requirements.txt     # Python dependencies
-├── setup.sh             # Virtual environment setup
-├── PKGBUILD             # Arch Linux package build
-├── Makefile             # Install/uninstall targets
-└── assets/              # Logos and screenshots
-```
-
-</details>
-
----
-
-<a name="license"></a>
-## 📄 License
-
-[MIT](LICENSE)
+MIT License — see [LICENSE](LICENSE) for details.
