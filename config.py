@@ -3,7 +3,7 @@ import os
 import tempfile
 from pathlib import Path
 
-VERSION = "1.1.3"
+VERSION = "1.1.4"
 
 CONFIG_DIR = Path.home() / ".config" / "mak-attatch"
 CONFIG_FILE = CONFIG_DIR / "config.json"

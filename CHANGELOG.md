@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.4
+
+### Added
+
+- The app version now shows on the app itself: GUI window title (`mak-attatch v1.1.4`) and TUI header subtitle (`v1.1.4`), sourced from a single `VERSION` constant in `config.py`
+
 ## v1.1.3
 
 ### Fixed
