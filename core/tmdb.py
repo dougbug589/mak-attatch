@@ -1,3 +1,5 @@
+import os
+import time
 import requests
 from pathlib import Path
 from urllib.parse import urlparse, urljoin
@@ -44,10 +46,13 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
         resp = session.get(current, params=params, stream=stream, timeout=TIMEOUT,
                            allow_redirects=False, headers=headers)
         if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
-            # Authorization header must not travel across hosts.
-            headers.pop("Authorization", None)
+            next_url = urljoin(current, resp.headers["Location"])
+            # Authorization header must not travel across hosts; it is safe
+            # to keep it when the redirect stays within the same host.
+            if urlparse(next_url).hostname != urlparse(current).hostname:
+                headers.pop("Authorization", None)
             params = {}
-            current = urljoin(current, resp.headers["Location"])
+            current = next_url
             resp.close()
             continue
         _validate_url(resp.url)
@@ -198,9 +203,45 @@ def details_for_path(path: str, current_media: dict = None) -> dict:
 VALID_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff"}
 
 
+def _sniff_image_mime(image_path: str) -> str | None:
+    """Strict magic-byte sniff. Returns None when the payload looks like no image."""
+    try:
+        with open(image_path, "rb") as f:
+            head = f.read(12)
+    except OSError:
+        return None
+    if head[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head[:2] == b"BM":
+        return "image/bmp"
+    if head[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image/tiff"
+    return None
+
+
 def download_image(url: str, dest: str):
     _validate_url(url)
-    resp = _fetch(url, stream=True)
+    resp = None
+    for attempt in range(3):
+        try:
+            resp = _fetch(url, stream=True)
+            break
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status and 500 <= status < 600 and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            if status == 503:
+                raise TMDBError("TMDB is busy")
+            if status:
+                raise TMDBError(f"TMDB returned HTTP {status}")
+            raise
 
     content_type = resp.headers.get("content-type", "").lower().split(";")[0].strip()
     if content_type not in VALID_IMAGE_TYPES:
@@ -218,3 +259,8 @@ def download_image(url: str, dest: str):
                 f.close()
                 raise TMDBError("Image exceeded size limit during download")
             f.write(chunk)
+
+    mime = _sniff_image_mime(dest)
+    if mime not in VALID_IMAGE_TYPES:
+        os.unlink(dest)
+        raise TMDBError("Downloaded content is not a valid image")

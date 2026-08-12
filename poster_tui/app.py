@@ -551,10 +551,10 @@ class PosterTuiApp(App):
             with self.suspend():
                 print("\033[2J\033[H", end="", flush=True)
                 for fmt in ("kitty", "sixel", "symbols"):
-                    args = ["chafa", "--format=" + fmt, path]
+                    args = ["chafa", "--format=" + fmt, "--", path]
                     if fmt == "symbols":
                         args = ["chafa", "--format=symbols", "--size=80x40",
-                                "--color-space=rgb", "--dither=fs", path]
+                                "--color-space=rgb", "--dither=fs", "--", path]
                     ret = subprocess.run(args, timeout=10).returncode
                     if ret == 0:
                         break
@@ -574,9 +574,9 @@ class PosterTuiApp(App):
                 print("\033[2J\033[H", end="", flush=True)
                 print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
         except FileNotFoundError:
-            pass
-        except Exception:  # nosec B110
-            pass
+            print("Warning: chafa exited unexpectedly during preview", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: preview failed: {e}", file=sys.stderr)
         self._update_selection_status()
 
     @on(Input.Submitted, "#search_input")

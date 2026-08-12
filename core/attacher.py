@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -314,7 +315,8 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
 def _find_attached_pic(video_path: str) -> int | None:
     try:
         video_path = str(_validate_path(video_path, VIDEO_EXTS))
-    except (ValueError, FileNotFoundError):
+    except (ValueError, FileNotFoundError) as e:
+        print(f"Warning: skipping invalid path {video_path}: {e}", file=sys.stderr)
         return None
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", video_path],
