@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import requests
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -30,6 +31,17 @@ from textual.widgets import (
 import config
 from config import VERSION
 from core import attacher, autoattach, parser, scanner, tmdb
+
+# Exceptions these operations can legitimately raise; anything else is a bug
+# and should propagate instead of being swallowed.
+OPERATION_ERRORS = (
+    tmdb.TMDBError,
+    requests.RequestException,
+    ValueError,
+    OSError,
+    RuntimeError,
+    subprocess.SubprocessError,
+)
 
 
 class FileCheckbox(Checkbox):
@@ -349,7 +361,8 @@ class PosterTuiApp(App):
             delay = config.get("scan_api_delay") or 0.25
             resolved = autoattach.resolve_groups(groups, api_delay=delay, progress=cb)
             self.call_from_thread(self._on_scan_resolved, resolved)
-        except Exception as e:
+        except (tmdb.TMDBError, requests.RequestException, ValueError,
+                OSError) as e:
             msg = f"Scan failed: {e}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
@@ -397,7 +410,8 @@ class PosterTuiApp(App):
                 api_delay=delay, to_mkv=to_mkv, progress=cb,
             )
             self.call_from_thread(self._on_auto_attach_done, summary)
-        except Exception as e:
+        except (tmdb.TMDBError, requests.RequestException, ValueError,
+                OSError) as e:
             msg = f"Auto-attach failed: {e}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
@@ -585,7 +599,7 @@ class PosterTuiApp(App):
                 print("\x1b_Ga=d,d=a\x1b\\", end="", flush=True)
         except FileNotFoundError:
             print("Warning: chafa exited unexpectedly during preview", file=sys.stderr)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             print(f"Warning: preview failed: {e}", file=sys.stderr)
         self._update_selection_status()
 
@@ -606,7 +620,8 @@ class PosterTuiApp(App):
         try:
             results = tmdb.search(query)
             self.call_from_thread(self._on_search_done, results)
-        except Exception as e:
+        except (tmdb.TMDBError, requests.RequestException, ValueError,
+                OSError) as e:
             self.call_from_thread(self._on_search_error, str(e))
 
     def _on_search_done(self, results):
@@ -636,7 +651,8 @@ class PosterTuiApp(App):
         try:
             posters = tmdb.get_posters(media_id, media_type)
             self.call_from_thread(self._on_posters_loaded, posters)
-        except Exception as e:
+        except (tmdb.TMDBError, requests.RequestException, ValueError,
+                OSError) as e:
             self.call_from_thread(self._on_search_error, str(e))
 
     def _on_posters_loaded(self, posters):
@@ -689,8 +705,8 @@ class PosterTuiApp(App):
                 f.write(resp.content)
             os.chmod(tmp, 0o600)
             self.call_from_thread(self._preview_native, tmp, info)
-        except Exception:  # nosec B110
-            pass
+        except (tmdb.TMDBError, requests.RequestException, OSError):
+            print(f"Warning: poster preview failed: {url}", file=sys.stderr)
         finally:
             if tmp:
                 try:
@@ -749,7 +765,7 @@ class PosterTuiApp(App):
                     if out != path:
                         conversions[path] = out
                     ok += 1
-                except Exception as e:
+                except OPERATION_ERRORS as e:
                     fail += 1
                     if first_error is None:
                         first_error = f"{Path(path).name}: {e}"
@@ -767,7 +783,7 @@ class PosterTuiApp(App):
             else:
                 msg = f"Attached: {ok}, Failed: {fail}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             msg = f"Error: {e}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
         finally:
@@ -800,7 +816,7 @@ class PosterTuiApp(App):
             try:
                 attacher.remove_poster(path)
                 ok += 1
-            except Exception:
+            except OPERATION_ERRORS:
                 fail += 1
         msg = f"Removed from {ok} file(s)" if fail == 0 else f"Removed: {ok}, Failed: {fail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
@@ -828,7 +844,7 @@ class PosterTuiApp(App):
             try:
                 attacher.remove_metadata(path)
                 ok += 1
-            except Exception:
+            except OPERATION_ERRORS:
                 fail += 1
         if fail == 0:
             msg = f"Removed metadata from {ok} file(s)"
@@ -863,7 +879,7 @@ class PosterTuiApp(App):
                 if out != path:
                     conversions[path] = out
                 ok += 1
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 fail += 1
                 if first_error is None:
                     first_error = f"{Path(path).name}: {e}"
@@ -913,7 +929,7 @@ class PosterTuiApp(App):
                 metadata = tmdb.details_for_path(path, self.current_media)
                 attacher.write_metadata(path, metadata)
                 ok += 1
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 fail += 1
                 errors.append(f"{Path(path).name}: {e}")
         if fail == 0:

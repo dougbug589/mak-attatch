@@ -29,7 +29,8 @@ def parse_filename(filepath: str) -> dict:
                 result["type"] = "episode"
                 result["season"] = info.get("season")
                 result["episode"] = info.get("episode")
-        except Exception:  # nosec B110
+        except (TypeError, ValueError):
+            # Best-effort parse: fall back to the raw filename as title.
             pass
 
     if not result["year"]:
