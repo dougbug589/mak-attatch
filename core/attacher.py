@@ -51,7 +51,10 @@ def _secure_temp_in_dir(directory: str, suffix: str) -> str:
     return path
 
 
-VIDEO_EXTS = {".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v", ".mpeg", ".mpg"}
+VIDEO_EXTS = {
+    ".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v",
+    ".mpeg", ".mpg",
+}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tiff"}
 MKV_COMPAT_EXTS = {".mkv"}
 MP4_COMPAT_EXTS = {".mp4", ".mov"}
@@ -358,7 +361,9 @@ def remove_poster(video_path: str):
         if result.returncode != 0:
             stderr = result.stderr.decode(errors='ignore').lower()
             if stderr and "no attachment matched" not in stderr:
-                raise RuntimeError(f"Failed to remove poster: {result.stderr.decode(errors='ignore')}")
+                raise RuntimeError(
+                    f"Failed to remove poster: {result.stderr.decode(errors='ignore')}"
+                )
     elif ext in MP4_COMPAT_EXTS:
         pic_idx = _find_attached_pic(video_path)
         if pic_idx is None:
@@ -368,7 +373,7 @@ def remove_poster(video_path: str):
             result = subprocess.run(
                 [
                     "ffmpeg", "-y", "-i", video_path,
-                    "-map", "0", f"-map", f"-0:{pic_idx}",
+                    "-map", "0", "-map", f"-0:{pic_idx}",
                     "-map_metadata", "0",
                     "-c", "copy", tmp,
                 ],

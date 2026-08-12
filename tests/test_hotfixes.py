@@ -5,9 +5,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from core import tmdb
-from core import attacher
-from core import autoattach
+from core import attacher, autoattach, tmdb
 from core.scanner import MediaGroup
 
 
@@ -176,8 +174,10 @@ class ErrorCapTest(unittest.TestCase):
     def test_errors_capped_at_20(self):
         group = MediaGroup(kind="movie", title="Boom Town", year="2020",
                            season=None, files=[f"/x/file{i}.mkv" for i in range(25)])
-        resolved = [{"group": group, "status": "ok",
-                     "match": {"id": 1, "media_type": "movie", "title": "Boom Town", "year": "2020"}}]
+        resolved = [{
+            "group": group, "status": "ok",
+            "match": {"id": 1, "media_type": "movie", "title": "Boom Town", "year": "2020"},
+        }]
 
         with mock.patch("core.autoattach.tmdb.get_posters",
                         return_value=[{"url": "https://image.tmdb.org/t/p/x.jpg"}]), \

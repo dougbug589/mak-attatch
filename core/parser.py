@@ -7,7 +7,10 @@ except ImportError:
     guessit = None
 
 
-VIDEO_EXTS = {".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v", ".mpeg", ".mpg"}
+VIDEO_EXTS = {
+    ".mkv", ".avi", ".mp4", ".mov", ".webm", ".flv", ".wmv", ".ts", ".m4v",
+    ".mpeg", ".mpg",
+}
 YEAR_RE = re.compile(r'[\.\s\-_\(](19|20)\d{2}[\.\s\-_\)]?')
 
 

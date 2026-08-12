@@ -95,7 +95,9 @@ def _have_ffmpeg_codec(codec: str) -> bool:
     if not _have("ffmpeg"):
         return False
     try:
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-codecs"], capture_output=True).stdout.decode()
+        out = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-codecs"], capture_output=True
+    ).stdout.decode()
         return any(line.startswith(" ") and codec in line for line in out.splitlines())
     except Exception:
         return False
@@ -184,8 +186,8 @@ class TestAttacher(unittest.TestCase):
         fmt = subprocess.run(["ffprobe", "-v", "quiet", "-show_format", path],
                              capture_output=True).stdout.decode()
         skip = ("TAG:major_brand", "TAG:minor_version", "TAG:compatible_brands")
-        return sorted(l for l in fmt.splitlines()
-                      if l.startswith("TAG:") and not l.startswith(skip))
+        return sorted(line for line in fmt.splitlines()
+                      if line.startswith("TAG:") and not line.startswith(skip))
 
     def test_mkv_remove_metadata(self):
         v = self.tmp / "rm.mkv"
@@ -583,7 +585,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     app._add_video_path(self.v1)
                     app._add_video_path(self.v2)
                     await asyncio.sleep(0.1)
@@ -694,7 +696,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     app._update_selection_status()
                     await asyncio.sleep(0.1)
                     self.assertEqual(
@@ -706,6 +708,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
     def test_multiline_paste_adds_all_paths(self):
         try:
             import asyncio
+
             from textual import events
 
             import poster_tui.app as tui_app
@@ -717,7 +720,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     inp = app.query_one("#path_input")
                     self.assertIsInstance(inp, tui_app.PathInput)
                     app.query_one("#path_input").focus()
@@ -752,7 +755,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     app.query_one("#path_input").value = blob
                     app.on_add_path()
                     await asyncio.sleep(0.1)
@@ -780,7 +783,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         async def run():
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     app.query_one("#path_input").value = blob
                     app.on_add_path()
                     await asyncio.sleep(0.1)
@@ -803,7 +806,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]):
-                async with app.run_test() as pilot:
+                async with app.run_test():
                     app._yazi_pick = lambda: f"{self.v1}\n{self.v2}"
                     with patch.object(app, "suspend", return_value=nullcontext()):
                         app.on_browse()
@@ -836,7 +839,9 @@ class TestPosterTuiFileSelection(unittest.TestCase):
                     await asyncio.sleep(0.1)
                     app.on_scrape_metadata()
                     for _ in range(100):
-                        if str(app.query_one("#status").content).startswith("Metadata written to 2"):
+                        if str(app.query_one("#status").content).startswith(
+                            "Metadata written to 2"
+                        ):
                             break
                         await asyncio.sleep(0.05)
                     status = str(app.query_one("#status").content)

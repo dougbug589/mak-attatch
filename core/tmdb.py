@@ -1,8 +1,10 @@
 import os
 import time
-import requests
 from pathlib import Path
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin, urlparse
+
+import requests
+
 import config
 
 BASE_URL = "https://api.themoviedb.org/3"
@@ -64,9 +66,9 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
 def _validate_url(url: str):
     parsed = urlparse(url)
     if parsed.scheme != "https":
-        raise TMDBError(f"Blocked non-HTTPS URL")
+        raise TMDBError("Blocked non-HTTPS URL")
     if parsed.hostname not in ALLOWED_HOSTS:
-        raise TMDBError(f"Blocked URL from untrusted host")
+        raise TMDBError("Blocked URL from untrusted host")
 
 
 def search(query: str, media_type: str = "multi") -> list[dict]:
@@ -165,10 +167,14 @@ def get_details(media_id: int, media_type: str) -> dict:
         crew = credits.get("crew", [])
         metadata["runtime"] = details.get("runtime")
         metadata["directors"] = sorted({c.get("name") for c in crew if c.get("job") == "Director"})
-        metadata["writers"] = sorted({c.get("name") for c in crew if c.get("job") in ("Writer", "Screenplay")})
+        metadata["writers"] = sorted(
+            {c.get("name") for c in crew if c.get("job") in ("Writer", "Screenplay")}
+        )
     else:
         metadata["runtime"] = None
-        metadata["creators"] = [c.get("name") for c in details.get("created_by", []) if c.get("name")]
+        metadata["creators"] = [
+            c.get("name") for c in details.get("created_by", []) if c.get("name")
+        ]
         metadata["seasons"] = details.get("number_of_seasons")
         metadata["episodes"] = details.get("number_of_episodes")
 
@@ -200,7 +206,9 @@ def details_for_path(path: str, current_media: dict = None) -> dict:
     return get_details(top["id"], top["media_type"])
 
 
-VALID_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff"}
+VALID_IMAGE_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/bmp", "image/gif", "image/tiff",
+}
 
 
 def _sniff_image_mime(image_path: str) -> str | None:
@@ -249,7 +257,7 @@ def download_image(url: str, dest: str):
 
     content_length = int(resp.headers.get("content-length", 0))
     if content_length > MAX_IMAGE_SIZE:
-        raise TMDBError(f"Image too large")
+        raise TMDBError("Image too large")
 
     downloaded = 0
     with open(dest, "wb") as f:

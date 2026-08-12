@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QApplication
 from core import attacher
 from ui.main_window import MainWindow
 
-
 DARK_QSS = """
 QWidget {
     background-color: #1e1e2e;

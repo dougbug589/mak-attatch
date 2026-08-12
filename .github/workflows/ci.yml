@@ -22,10 +22,22 @@ jobs:
           sudo apt-get install -y ffmpeg mkvtoolnix
       - name: Install Python dependencies
         run: |
-          pip install requests guessit
+          pip install pytest requests guessit
       - name: Run tests
         run: |
-          python -m unittest discover -s tests -v
+          python -m pytest tests/ -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Run ruff
+        run: ruff check .
 
   security:
     runs-on: ubuntu-latest
