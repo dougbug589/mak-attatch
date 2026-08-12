@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.6 — 2026-08-12
+
+### Fixed
+
+- **core/tmdb.py**: Authorization header stripped on same-host redirects. Now only stripped when a redirect crosses hosts.
+- **core/attacher.py**: `_find_attached_pic` now logs validation errors to stderr instead of silently returning `None`.
+- **core/tmdb.py**: `download_image()` now verifies magic bytes after download, rejecting non-image files.
+- **core/autoattach.py**: Error list now bounded to 20 entries during accumulation, preventing unbounded memory growth on large batches.
+- **poster_tui/app.py**: `_preview_native` now logs chafa failures to stderr instead of silently swallowing them. Added `--` separator before the path in the chafa invocation.
+
+### Improved
+
+- **core/tmdb.py**: `download_image()` now retries (up to 2) 5xx responses from the image host, with specific handling for 503 ("TMDB is busy").
+
 ## v1.1.5
 
 ### Fixed

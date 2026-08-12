@@ -70,6 +70,7 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
     Returns a summary dict: {"ok", "fail", "skipped", "errors"}.
     """
     summary = {"ok": 0, "fail": 0, "skipped": 0, "errors": []}
+    MAX_ERRORS = 20
     ok_groups = [r for r in resolved if r["status"] == "ok"]
     total_files = sum(len(r["group"].files) for r in ok_groups)
     done = 0
@@ -82,13 +83,15 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
             posters = tmdb.get_posters(match["id"], match["media_type"])
             if not posters:
                 summary["fail"] += len(group.files)
-                summary["errors"].append(f"{group.title}: no posters available")
+                if len(summary["errors"]) < MAX_ERRORS:
+                    summary["errors"].append(f"{group.title}: no posters available")
                 continue
             chosen = entry.get("poster") or posters[0]
             url = chosen.get("url") or chosen.get("thumb_url")
             if not url:
                 summary["fail"] += len(group.files)
-                summary["errors"].append(f"{group.title}: poster has no image URL")
+                if len(summary["errors"]) < MAX_ERRORS:
+                    summary["errors"].append(f"{group.title}: poster has no image URL")
                 continue
             fd, poster_path = tempfile.mkstemp(suffix=".jpg")
             os.close(fd)
@@ -116,13 +119,15 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
                         progress(done, total_files, filepath, "ok")
                 except Exception as e:  # nosec B110
                     summary["fail"] += 1
-                    summary["errors"].append(f"{Path(filepath).name}: {e}")
+                    if len(summary["errors"]) < MAX_ERRORS:
+                        summary["errors"].append(f"{Path(filepath).name}: {e}")
                     if progress:
                         progress(done, total_files, filepath, "fail")
             time.sleep(api_delay)
         except Exception as e:  # nosec B110
             summary["fail"] += len(group.files)
-            summary["errors"].append(f"{group.title}: {e}")
+            if len(summary["errors"]) < MAX_ERRORS:
+                summary["errors"].append(f"{group.title}: {e}")
         finally:
             if poster_path:
                 try:
@@ -130,6 +135,4 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
                 except OSError:
                     pass
 
-    if summary["errors"]:
-        summary["errors"] = summary["errors"][:20]
     return summary
