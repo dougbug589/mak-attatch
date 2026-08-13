@@ -1,10 +1,16 @@
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QRect, QSize, QPoint
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QLabel, QScrollArea, QSizePolicy, QWidget, QLayout, QLayoutItem,
+    QFrame,
+    QLabel,
+    QLayout,
+    QScrollArea,
+    QWidget,
 )
 
 from core import tmdb
+
+from .main_window import OPERATION_ERRORS
 
 
 class ImageLoader(QThread):
@@ -21,7 +27,7 @@ class ImageLoader(QThread):
             pixmap = QPixmap()
             pixmap.loadFromData(resp.content)
             self.loaded.emit(self.index, pixmap)
-        except Exception:  # nosec B110
+        except OPERATION_ERRORS:
             pass
 
 
@@ -180,7 +186,6 @@ class QFlowLayout(QLayout):
         line_height = 0
 
         for item in self._items:
-            wid = item.widget()
             space_x = self._spacing
             space_y = self._spacing
             next_x = x + item.sizeHint().width() + space_x

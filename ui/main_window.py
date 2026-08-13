@@ -1,21 +1,69 @@
 import os
+import subprocess
 import tempfile
 import uuid
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot, Qt
+import requests
+from PyQt6.QtCore import QObject, Qt, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
-from PyQt6.QtGui import QAction, QIcon, QKeySequence, QPixmap, QShortcut, QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import (
+    QAction,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QHBoxLayout,
-    QHeaderView, QInputDialog, QLabel,     QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget, QProgressBar, QSizePolicy, QToolBar,
+    QAbstractItemView,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QToolBar,
     QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 import config
 from core import attacher, autoattach, parser, scanner, tmdb
+
+# Exceptions these operations can legitimately raise; anything else is a bug
+# and should propagate instead of being swallowed.
+OPERATION_ERRORS = (
+    tmdb.TMDBError,
+    requests.RequestException,
+    ValueError,
+    OSError,
+    subprocess.SubprocessError,
+    RuntimeError,
+)
+
+VIDEO_FILTER = (
+    "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v "
+    "*.mpeg *.mpg);;All Files (*)"
+)
+IMAGE_FILTER = (
+    "Images (*.jpg *.jpeg *.png *.bmp *.webp *.gif *.tiff *.svg *.ico);;All "
+    "Files (*)"
+)
 
 
 class PortalFilePicker(QObject):
@@ -162,7 +210,10 @@ class ApiKeyDialog(QDialog):
 
         url_label = QLabel('Get one free at <a href="https://www.themoviedb.org/settings/api">https://www.themoviedb.org/settings/api</a>')
         url_label.setOpenExternalLinks(True)
-        url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.LinksAccessibleByMouse)
+        url_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
         layout.addWidget(url_label)
 
         self.key_input = QLineEdit()
@@ -206,7 +257,7 @@ class SearchWorker(QThread):
         try:
             results = tmdb.search(self.query)
             self.finished.emit(results)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
@@ -223,7 +274,7 @@ class PosterWorker(QThread):
         try:
             posters = tmdb.get_posters(self.media_id, self.media_type)
             self.finished.emit(posters)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
@@ -252,7 +303,7 @@ class BatchWorker(QThread):
                                                metadata=self.metadata,
                                                to_mkv=self.to_mkv)
                     results.append({"path": path, "out": out, "ok": True})
-                except Exception as e:
+                except OPERATION_ERRORS as e:
                     results.append({"path": path, "out": str(e), "ok": False})
         finally:
             if self.cleanup_poster and self.poster_path and os.path.exists(self.poster_path):
@@ -281,7 +332,7 @@ class ConvertWorker(QThread):
             try:
                 out = attacher.remux_to_mkv(path)
                 results.append({"path": path, "out": out, "ok": True, "error": ""})
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 results.append({"path": path, "out": path, "ok": False, "error": str(e)})
         self.results = results
         self.finished.emit(results)
@@ -302,7 +353,7 @@ class ScanWorker(QThread):
             self.progress.emit(f"Scanning {self.root}...")
             groups = scanner.classify(files)
             self.finished.emit(groups)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
@@ -323,7 +374,7 @@ class ResolveWorker(QThread):
 
             resolved = autoattach.resolve_groups(self.groups, api_delay=self.api_delay, progress=cb)
             self.finished.emit(resolved)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
@@ -356,7 +407,7 @@ class AutoAttachWorker(QThread):
                 progress=cb,
             )
             self.finished.emit(summary)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
@@ -376,7 +427,10 @@ class PosterPreviewDialog(QDialog):
         self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.image_label)
 
-        info = QLabel(f"Resolution: {poster['width']}x{poster['height']}  |  Language: {poster.get('lang') or '??'}")
+        info = QLabel(
+            f"Resolution: {poster['width']}x{poster['height']}  |  "
+            f"Language: {poster.get('lang') or '??'}"
+        )
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(info)
 
@@ -416,7 +470,7 @@ class PosterPreviewDialog(QDialog):
                 pixmap = QPixmap()
                 pixmap.loadFromData(resp.content)
                 self.loaded.emit(pixmap)
-            except Exception:  # nosec B110
+            except OPERATION_ERRORS:
                 pass
 
 
@@ -1009,7 +1063,7 @@ class MainWindow(QMainWindow):
             self._on_video_picked,
             "Select Video",
             last_dir,
-            filters="Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
+            filters=VIDEO_FILTER,
         )
 
     def _on_video_picked(self, path):
@@ -1023,7 +1077,7 @@ class MainWindow(QMainWindow):
             "Select Videos",
             last_dir,
             multiple=True,
-            filters="Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.flv *.wmv *.ts *.m4v *.mpeg *.mpg);;All Files (*)",
+            filters=VIDEO_FILTER,
         )
 
     def _on_videos_picked(self, paths):
@@ -1101,7 +1155,7 @@ class MainWindow(QMainWindow):
             self._on_local_image_picked,
             "Select Image",
             self._last_image_dir or "",
-            filters="Images (*.jpg *.jpeg *.png *.bmp *.webp *.gif *.tiff *.svg *.ico);;All Files (*)",
+            filters=IMAGE_FILTER,
         )
 
     def _on_local_image_picked(self, path):
@@ -1168,12 +1222,13 @@ class MainWindow(QMainWindow):
                 used_batch = True
                 self._batch_attach(targets, poster_path, metadata,
                                    to_mkv=self.mkv_check.isChecked())
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             self.status_label.setText(f"Error: {e}")
             QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
         finally:
             if not used_batch:
-                if poster_path and poster_path != self.local_poster_path and os.path.exists(poster_path):
+                if poster_path and poster_path != self.local_poster_path \
+                        and os.path.exists(poster_path):
                     os.unlink(poster_path)
                 self.progress.hide()
                 self.attach_btn.setEnabled(True)
@@ -1277,7 +1332,11 @@ class MainWindow(QMainWindow):
             return
 
         count = len(targets)
-        msg = f"Remove poster from this video?" if count == 1 else f"Remove poster from {count} files?"
+        msg = (
+            "Remove poster from this video?"
+            if count == 1
+            else f"Remove poster from {count} files?"
+        )
         reply = QMessageBox.question(
             self, "Confirm", msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1291,7 +1350,7 @@ class MainWindow(QMainWindow):
                 name = Path(targets[0]).name
                 self.status_label.setText(f"Poster removed from {name}")
                 QMessageBox.information(self, "Done", f"Poster removed from {name}!")
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 self.status_label.setText("Error removing poster")
                 QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
         else:
@@ -1310,7 +1369,7 @@ class MainWindow(QMainWindow):
             try:
                 attacher.remove_poster(path)
                 ok += 1
-            except Exception:
+            except OPERATION_ERRORS:
                 fail += 1
         self.progress.hide()
         self.attach_btn.setEnabled(True)
@@ -1335,7 +1394,7 @@ class MainWindow(QMainWindow):
             return
         try:
             fail = self._batch_remove_metadata(videos)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             QMessageBox.critical(self, "Error", str(e))
             return
         ok = len(videos) - len(fail)
@@ -1350,7 +1409,7 @@ class MainWindow(QMainWindow):
         for v in videos:
             try:
                 attacher.remove_metadata(v)
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 fail.append(f"{v}\n  {e}")
         return fail
 
@@ -1371,7 +1430,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Scraping metadata...")
         try:
             fail = self._batch_scrape_metadata(videos)
-        except Exception as e:
+        except OPERATION_ERRORS as e:
             QMessageBox.critical(self, "Error", str(e))
             return
         finally:
@@ -1392,7 +1451,7 @@ class MainWindow(QMainWindow):
             try:
                 metadata = tmdb.details_for_path(v, self.current_media)
                 attacher.write_metadata(v, metadata)
-            except Exception as e:
+            except OPERATION_ERRORS as e:
                 fail.append(f"{Path(v).name}: {e}")
         return fail
 
