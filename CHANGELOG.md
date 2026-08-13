@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.0 — 2026-08-13
+
+### Added
+
+- **cli.py**: Headless Qt-free CLI (`mak-attatch-cli`) with `attach`, `remove`, and `scan` subcommands. Shares the `core/` pipeline with the GUI and TUI, so it works in scripts, cron jobs, and file-manager actions. New `mak-attatch-cli` binary wired into the Makefile and PKGBUILD.
+  - `attach -f FILE [-s QUERY | -p IMAGE] [--embed-metadata] [--to-mkv]` — attach a poster by TMDB search or from a local image (search query is derived from the filename when neither is given).
+  - `remove -f FILE [--poster-only | --metadata-only]` — remove the attached poster (default) or embedded metadata.
+  - `scan DIR [--skip-existing] [--embed-metadata] [--to-mkv]` — scan a folder, resolve titles against TMDB, and auto-attach posters with live progress.
+  - Missing TMDB API key is a hard-fail with a clear "how to set it" message; missing ffmpeg/mkvtoolnix fail up front via `check_tools()`.
+- **tests/test_cli.py**: 19 tests covering argument dispatch, attach-by-search/local-poster, temp-poster cleanup, metadata scraping, error paths, and the scan pipeline.
+
 ## v1.2.0 — 2026-08-13
 
 ### Added
