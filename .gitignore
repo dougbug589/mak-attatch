@@ -9,3 +9,4 @@ src/
 *.pkg.tar.*
 *.o
 *.so
+.aider*
