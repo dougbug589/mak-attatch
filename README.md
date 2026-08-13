@@ -80,7 +80,7 @@ cd mak-attatch
 makepkg -si
 ```
 
-This installs the full package: `/usr/bin/mak-attatch`, `/usr/bin/mak-attatch-tui`, `.desktop` entry, and icon.
+This installs the full package: `/usr/bin/mak-attatch`, `/usr/bin/mak-attatch-tui`, `/usr/bin/mak-attatch-cli`, `.desktop` entry, and icon.
 
 ### From Source
 
@@ -295,9 +295,12 @@ mak-attatch/
 ├── setup.sh             # Virtual environment setup
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
-├── tests/               # Test suite (72 tests)
+├── tests/               # Test suite (114 tests)
 │   ├── test_attacher.py
 │   ├── test_autoattach.py
+│   ├── test_cli.py
+│   ├── test_deps.py
+│   ├── test_hotfixes.py
 │   ├── test_scanner.py
 │   └── test_tmdb.py
 └── assets/              # Logos and screenshots
@@ -306,6 +309,23 @@ mak-attatch/
 ---
 
 ## Changelog
+
+### v1.3.0 — 2026-08-13
+- **Added** `cli.py`: Headless CLI mode (`mak-attatch-cli`) for scripts and automation.
+- **Improved** `setup.sh`: Distro-aware dependency detection (apt/pacman/dnf).
+- **Improved** Terminal poster preview: sixel/kitty capability probe with fallback.
+
+### v1.2.0 — 2026-08-13
+- **Fixed** Replaced broad `except Exception` with specific exception types across core, UI, and TUI.
+- **Added** `has_poster()` session cache with mtime validation for batch scans.
+- **Added** GitHub Actions CI (pytest + ruff).
+- **Improved** UI lint cleanup, removed ruff exclusions.
+
+### v1.1.6 — 2026-08-12
+- **Fixed** `core/tmdb.py`: Host-aware auth header stripping, magic-byte verification on download, 5xx retry logic.
+- **Fixed** `core/attacher.py`: `_find_attached_pic` logs errors to stderr.
+- **Fixed** `core/autoattach.py`: Bounded error accumulation (max 20).
+- **Fixed** `poster_tui/app.py`: chafa `--` separator, failure logging.
 
 ### v1.1.5 — 2026-08-10
 - **Fixed** `core/tmdb.py`: Redirect handling used non-existent `resp.urljoin()`. Replaced with `urllib.parse.urljoin()`. Fixes an `AttributeError` crash when TMDB image CDN returns a redirect.
