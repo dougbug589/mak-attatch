@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.1 — 2026-08-13
+
+### Improved
+
+- **setup.sh**: Distro-aware dependency detection (apt/pacman/dnf) with per-distro install commands. Prints commands by default; `--auto-install` opts into running them.
+- **core/deps.py**: Shared helper used by setup.sh and the runtime gates for consistent, distro-specific "missing dependency" messages (including the yazi apt-repo keyring step on Debian/Ubuntu).
+- **poster_tui/app.py**: Terminal poster preview now probes sixel/kitty capability (DEC DA1) and falls back gracefully, so posters render on any terminal.
+
+### Fixed
+
+- **README**: Updated changelog through v1.3.1, corrected test count (114), documented `mak-attatch-cli`.
+
 ## v1.3.0 — 2026-08-13
 
 ### Added

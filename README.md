@@ -310,6 +310,12 @@ mak-attatch/
 
 ## Changelog
 
+### v1.3.1 — 2026-08-13
+- **Improved** `setup.sh`: Distro-aware dependency detection (apt/pacman/dnf).
+- **Improved** `core/deps.py`: Shared helper for runtime dependency messages.
+- **Improved** Terminal poster preview: sixel/kitty capability probe with fallback.
+- **Fixed** README: Updated changelog, test count, CLI binary documentation.
+
 ### v1.3.0 — 2026-08-13
 - **Added** `cli.py`: Headless CLI mode (`mak-attatch-cli`) for scripts and automation.
 - **Improved** `setup.sh`: Distro-aware dependency detection (apt/pacman/dnf).
