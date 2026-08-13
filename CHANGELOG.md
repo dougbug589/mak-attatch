@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.2.0 — 2026-08-13
+
+### Added
+
+- **core/scanner.py**: mtime-keyed session cache for `has_poster()`. Repeat lookups across consecutive batch attach runs skip ffprobe/mkvmerge; modified or re-attached files self-invalidate via their stat key.
+- **.github/workflows/ci.yml**: CI now runs pytest (Python 3.10–3.13) plus a dedicated ruff job (E/F/I + BLE001/S110) on every push and PR.
+
+### Fixed
+
+- **core/** and **poster_tui/app.py**: Replaced broad `except Exception` with specific exception types (`TMDBError`, `RequestException`, `ValueError`, `OSError`, `SubprocessError`, `RuntimeError`). Unexpected errors now propagate instead of being silently swallowed. Temp-file cleanup in `core/attacher.py` rewritten as `try/finally` so it also runs on unexpected exceptions.
+- **poster_tui/app.py**: Fixed latent late-binding bugs where the `except` variable was referenced inside deferred lambdas.
+- **ui/main_window.py** and **ui/poster_grid.py**: All 16 broad `except Exception` sites narrowed to a shared `OPERATION_ERRORS` tuple; worker boundaries and per-file loops keep catching legitimate operation errors.
+
+### Improved
+
+- **ui/**: Removed the ruff exclusion for `ui/` and fixed the lint debt it had been hiding (unused imports, import sorting, over-long lines, an empty f-string, an unused local). Extracted shared `VIDEO_FILTER`/`IMAGE_FILTER` dialog filter constants.
+- **ui/main_window.py** and **ui/poster_grid.py**: Unbounded thread waits on dialog/application shutdown so in-flight workers are never killed mid-write; the file list context menu now removes multiple selected files at once.
+
 ## v1.1.6 — 2026-08-12
 
 ### Fixed
