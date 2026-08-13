@@ -130,6 +130,21 @@ mak-attatch-tui
 
 **Folder scan (Ctrl+S):** Scan a directory, review auto-matches, attach in bulk.
 
+### Command-Line Interface
+
+Qt-free, headless CLI for scripts, cron jobs, and file-manager actions.
+
+```bash
+mak-attatch-cli attach -f movie.mkv -s "The Matrix" --embed-metadata
+mak-attatch-cli attach -f movie.mkv -p poster.jpg
+mak-attatch-cli attach -f "Show S01E01.mkv"           # query derived from filename
+mak-attatch-cli remove -f movie.mkv                   # remove poster (default)
+mak-attatch-cli remove -f movie.mkv --metadata-only   # remove metadata only
+mak-attatch-cli scan ~/Videos --skip-existing --embed-metadata
+```
+
+Requires a configured TMDB API key (see [API Key](#api-key)). Attach and scan fail fast with a clear message if the key or a required tool (ffmpeg/mkvtoolnix) is missing.
+
 ---
 
 ## Keyboard Shortcuts
@@ -263,6 +278,7 @@ sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 mak-attatch/
 ├── main.py              # Desktop GUI entry point
 ├── poster-tui           # Terminal TUI entry point
+├── cli.py               # Headless CLI entry point (mak-attatch-cli)
 ├── poster_tui/          # TUI application code
 │   ├── __init__.py
 │   └── app.py

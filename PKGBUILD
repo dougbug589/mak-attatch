@@ -14,7 +14,7 @@ sha256sums=('406e9b2cee1ee5e8c94bcb4d491eabd2f7d790ae44dd65a5552dd638a0c513bb')
 package() {
     cd "$srcdir/mak-attatch-$pkgver"
     install -Ddm755 "$pkgdir/usr/lib/$pkgname"
-    cp -r core ui poster_tui poster-tui config.py main.py requirements.txt assets "$pkgdir/usr/lib/$pkgname/"
+    cp -r core ui poster_tui poster-tui config.py main.py cli.py requirements.txt assets "$pkgdir/usr/lib/$pkgname/"
 
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" <<EOF
 #!/bin/sh
@@ -24,6 +24,11 @@ EOF
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname-tui" <<EOF
 #!/bin/sh
 exec /usr/bin/python3 /usr/lib/$pkgname/poster-tui "\$@"
+EOF
+
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname-cli" <<EOF
+#!/bin/sh
+exec /usr/bin/python3 /usr/lib/$pkgname/cli.py "\$@"
 EOF
 
     install -Dm644 mak-attatch.desktop "$pkgdir/usr/share/applications/mak-attatch.desktop"
