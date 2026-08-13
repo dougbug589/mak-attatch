@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from core import autoattach, scanner
+from core import autoattach, scanner, tmdb
 
 
 def _group(kind, title, files, season=None, year=""):
@@ -36,12 +36,20 @@ class ResolveGroupsTest(unittest.TestCase):
         self.assertEqual(resolved[0]["status"], "no-match")
         self.assertIsNone(resolved[0]["match"])
 
-    @mock.patch("core.autoattach.tmdb.search", side_effect=RuntimeError("boom"))
+    @mock.patch("core.autoattach.tmdb.search",
+                side_effect=tmdb.TMDBError("boom"))
     def test_search_error_is_recorded(self, search):
         groups = [_group("movie", "Boom", ["/x/b.mkv"])]
         resolved = autoattach.resolve_groups(groups, api_delay=0)
         self.assertEqual(resolved[0]["status"], "error")
         self.assertIn("boom", resolved[0]["error"])
+
+    @mock.patch("core.autoattach.tmdb.search")
+    def test_unexpected_error_propagates(self, search):
+        search.side_effect = RuntimeError("boom")
+        with self.assertRaises(RuntimeError):
+            autoattach.resolve_groups([_group("movie", "Boom", ["/x/b.mkv"])],
+                                      api_delay=0)
 
     @mock.patch("core.autoattach.tmdb.search")
     def test_scoped_media_type(self, search):

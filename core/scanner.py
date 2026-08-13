@@ -149,7 +149,7 @@ def has_poster(path: str) -> bool:
                 capture_output=True, timeout=30, check=True,
             )
             data = json.loads(result.stdout)
-        except Exception:  # nosec B110
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
             return False
         mimes = set(attacher.MIME_MAP.values())
         for att in data.get("attachments", []):

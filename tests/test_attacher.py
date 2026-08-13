@@ -99,7 +99,7 @@ def _have_ffmpeg_codec(codec: str) -> bool:
         ["ffmpeg", "-hide_banner", "-codecs"], capture_output=True
     ).stdout.decode()
         return any(line.startswith(" ") and codec in line for line in out.splitlines())
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -320,7 +320,7 @@ class TestParser(unittest.TestCase):
 
 try:
     from ui.main_window import BatchWorker, ConvertWorker, MainWindow
-except Exception:  # PyQt6 not installed (CI test runner)
+except ImportError:  # PyQt6 not installed (CI test runner)
     BatchWorker = None
     ConvertWorker = None
     MainWindow = None

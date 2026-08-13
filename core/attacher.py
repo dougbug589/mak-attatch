@@ -206,10 +206,9 @@ def write_metadata_mp4(video_path: str, metadata: dict):
         if result.returncode != 0:
             raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
         os.replace(tmp, video_path)
-    except Exception:
+    finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-        raise
 
 
 def write_metadata(video_path: str, metadata: dict):
@@ -246,10 +245,9 @@ def remove_metadata(video_path: str):
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
             os.replace(tmp, video_path)
-        except Exception:
+        finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-            raise
     else:
         raise RuntimeError("Metadata removal is only supported for MKV and MP4 files")
 
@@ -309,10 +307,9 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
             check=True, capture_output=True, timeout=60,
         )
         os.replace(tmp, video_path)
-    except Exception:
+    finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
-        raise
 
 
 def _find_attached_pic(video_path: str) -> int | None:
@@ -382,10 +379,9 @@ def remove_poster(video_path: str):
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
             os.replace(tmp, video_path)
-        except Exception:
+        finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-            raise
     else:
         raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 

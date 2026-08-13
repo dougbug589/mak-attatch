@@ -1,7 +1,10 @@
 import os
+import subprocess
 import tempfile
 import time
 from pathlib import Path
+
+import requests
 
 from core import attacher, scanner, tmdb
 
@@ -47,7 +50,7 @@ def resolve_groups(groups: list[scanner.MediaGroup], api_delay: float = 0.25,
                 entry["status"] = "ok"
             else:
                 entry["status"] = "no-match"
-        except Exception as e:  # nosec B110
+        except (tmdb.TMDBError, ValueError, OSError, requests.RequestException) as e:
             entry["error"] = str(e)
         resolved.append(entry)
         if progress:
@@ -117,14 +120,15 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
                     summary["ok"] += 1
                     if progress:
                         progress(done, total_files, filepath, "ok")
-                except Exception as e:  # nosec B110
+                except (ValueError, OSError, subprocess.SubprocessError, RuntimeError) as e:
                     summary["fail"] += 1
                     if len(summary["errors"]) < MAX_ERRORS:
                         summary["errors"].append(f"{Path(filepath).name}: {e}")
                     if progress:
                         progress(done, total_files, filepath, "fail")
             time.sleep(api_delay)
-        except Exception as e:  # nosec B110
+        except (tmdb.TMDBError, ValueError, OSError, requests.RequestException,
+                subprocess.SubprocessError) as e:
             summary["fail"] += len(group.files)
             if len(summary["errors"]) < MAX_ERRORS:
                 summary["errors"].append(f"{group.title}: {e}")
