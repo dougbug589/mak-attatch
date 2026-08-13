@@ -594,7 +594,7 @@ class PosterTuiApp(App):
             termios.tcsetattr(fd, termios.TCSANOW, old)
             m = re.search(rb"\x1b\[\?([0-9;]*)c", resp)
             return bool(m and "4" in m.group(1).decode().split(";"))
-        except Exception:
+        except Exception:  # noqa: BLE001 - probe failure means "no sixel", fall back safely
             return False
 
     @staticmethod

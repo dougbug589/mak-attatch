@@ -42,8 +42,10 @@ class DepsDetectionTest(unittest.TestCase):
             self.assertEqual(deps.yazi_keyring_commands(), [])
 
     def test_missing_binaries_filters_path(self):
-        with mock.patch.object(deps.shutil, "which",
-                               side_effect=lambda b: None if b in ("yazi", "chafa") else "/usr/bin/" + b):
+        with mock.patch.object(
+                deps.shutil, "which",
+                side_effect=lambda b: None if b in ("yazi", "chafa")
+                else "/usr/bin/" + b):
             self.assertEqual(sorted(deps.missing_binaries()), ["chafa", "yazi"])
 
     def test_hint_includes_install_command_and_keyring(self):

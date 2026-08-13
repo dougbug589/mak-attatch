@@ -90,8 +90,11 @@ def yazi_keyring_commands() -> list[str]:
     if package_manager() != "apt":
         return []
     return [
-        "curl -fsSL https://yazi-rs.github.io/builds/yazi-keyring.gpg | sudo tee /usr/share/keyrings/yazi-keyring.gpg >/dev/null",
-        "echo 'deb [signed-by=/usr/share/keyrings/yazi-keyring.gpg] https://yazi-rs.github.io/builds/ stable main' | sudo tee /etc/apt/sources.list.d/yazi.list >/dev/null",
+        "curl -fsSL https://yazi-rs.github.io/builds/yazi-keyring.gpg "
+        "| sudo tee /usr/share/keyrings/yazi-keyring.gpg >/dev/null",
+        "echo 'deb [signed-by=/usr/share/keyrings/yazi-keyring.gpg] "
+        "https://yazi-rs.github.io/builds/ stable main' "
+        "| sudo tee /etc/apt/sources.list.d/yazi.list >/dev/null",
     ]
 
 
@@ -128,7 +131,8 @@ def _main() -> int:
         print(hint())
     else:
         print(__doc__)
-        print("Usage: python3 core/deps.py [--distro|--pm|--packages|--missing|--install-cmd|--yazi-keyring|--hint]")
+        print("Usage: python3 core/deps.py "
+              "[--distro|--pm|--packages|--missing|--install-cmd|--yazi-keyring|--hint]")
         return 1
     return 0
 
