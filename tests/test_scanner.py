@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from core import scanner
 
@@ -135,6 +136,53 @@ class HasPosterTest(unittest.TestCase):
 
     def test_unsupported_extension_false(self):
         self.assertFalse(scanner.has_poster(os.path.join(self._tmp, "clip.avi")))
+
+
+class HasPosterCacheTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="mak-cache-")
+        self.video = str(Path(self._tmp) / "clip.mkv")
+        Path(self.video).touch()
+        scanner.clear_poster_cache()
+
+    def tearDown(self):
+        scanner.clear_poster_cache()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _no_attachments_result(self):
+        result = mock.Mock()
+        result.stdout = b'{"attachments": []}'
+        return result
+
+    def test_repeat_lookup_hits_cache(self):
+        with mock.patch.object(scanner.subprocess, "run",
+                               return_value=self._no_attachments_result()) as run:
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertEqual(run.call_count, 1)
+
+    def test_mtime_change_invalidates_entry(self):
+        with mock.patch.object(scanner.subprocess, "run",
+                               return_value=self._no_attachments_result()) as run:
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertEqual(run.call_count, 1)
+            os.utime(self.video, ns=(1_700_000_000, 1_700_000_000))
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertEqual(run.call_count, 2)
+
+    def test_clear_poster_cache_single_path(self):
+        other = str(Path(self._tmp) / "other.mkv")
+        Path(other).touch()
+        with mock.patch.object(scanner.subprocess, "run",
+                               return_value=self._no_attachments_result()) as run:
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertFalse(scanner.has_poster(other))
+            self.assertEqual(run.call_count, 2)
+            scanner.clear_poster_cache(self.video)
+            self.assertFalse(scanner.has_poster(self.video))
+            self.assertFalse(scanner.has_poster(other))
+            self.assertEqual(run.call_count, 3)
 
 
 if __name__ == "__main__":

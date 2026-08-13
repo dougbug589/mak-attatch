@@ -133,12 +133,18 @@ def classify(files: list[str]) -> list[MediaGroup]:
     return [groups[key] for key in order]
 
 
-def has_poster(path: str) -> bool:
-    """Return True when the video already carries attached cover art."""
-    try:
-        path = str(attacher._validate_path(path, attacher.VIDEO_EXTS))
-    except (ValueError, FileNotFoundError):
-        return False
+_poster_cache: dict[str, tuple[int, int, bool]] = {}
+
+
+def clear_poster_cache(path: str | None = None) -> None:
+    """Drop cached poster status for *path*, or for every path when omitted."""
+    if path is None:
+        _poster_cache.clear()
+    else:
+        _poster_cache.pop(path, None)
+
+
+def _probe_poster(path: str) -> bool:
     ext = Path(path).suffix.lower()
     if ext in attacher.MP4_COMPAT_EXTS:
         return attacher._find_attached_pic(path) is not None
@@ -157,3 +163,24 @@ def has_poster(path: str) -> bool:
                 return True
         return False
     return False
+
+
+def has_poster(path: str) -> bool:
+    """Return True when the video already carries attached cover art.
+
+    Results are cached per path keyed on (mtime, size), so a file modified
+    or re-attached since the last check invalidates itself on the next
+    lookup. The cache lives for the process session to skip repeat ffprobe /
+    mkvmerge calls across consecutive batch attach runs.
+    """
+    try:
+        path = str(attacher._validate_path(path, attacher.VIDEO_EXTS))
+        st = os.stat(path)
+    except (ValueError, FileNotFoundError, OSError):
+        return False
+    cached = _poster_cache.get(path)
+    if cached is not None and (st.st_mtime_ns, st.st_size) == cached[:2]:
+        return cached[2]
+    result = _probe_poster(path)
+    _poster_cache[path] = (st.st_mtime_ns, st.st_size, result)
+    return result

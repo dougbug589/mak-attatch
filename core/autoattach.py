@@ -117,6 +117,7 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
                 try:
                     attacher.full_attach(filepath, poster_path, metadata=metadata,
                                          to_mkv=to_mkv)
+                    scanner.clear_poster_cache(filepath)
                     summary["ok"] += 1
                     if progress:
                         progress(done, total_files, filepath, "ok")
