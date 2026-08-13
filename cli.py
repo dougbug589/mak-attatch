@@ -26,7 +26,7 @@ import requests
 
 import config
 from config import VERSION
-from core import attacher, autoattach, parser, scanner, tmdb
+from core import attacher, autoattach, deps, parser, scanner, tmdb
 
 # Exceptions these operations can legitimately raise; anything else is a bug
 # and should propagate instead of being swallowed.
@@ -57,7 +57,7 @@ def _require_api_key() -> None:
 def _check_tools() -> None:
     missing = attacher.check_tools()
     if missing:
-        _fail(f"Missing required tools: {', '.join(missing)}")
+        _fail(f"Missing required tools: {', '.join(missing)}. {deps.hint(missing)}")
 
 
 def _resolve_match(search: str | None, filepath: str) -> dict:

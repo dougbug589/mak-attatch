@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication
 
-from core import attacher
+from core import attacher, deps
 from ui.main_window import MainWindow
 
 DARK_QSS = """
@@ -96,7 +96,7 @@ def main():
     missing = attacher.check_tools()
     if missing:
         print(f"Missing required tools: {', '.join(missing)}")
-        print("Install them with your package manager")
+        print(deps.hint(missing))
         sys.exit(1)
 
     app = QApplication(sys.argv)

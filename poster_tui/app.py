@@ -30,7 +30,7 @@ from textual.widgets import (
 
 import config
 from config import VERSION
-from core import attacher, autoattach, parser, scanner, tmdb
+from core import attacher, autoattach, deps, parser, scanner, tmdb
 
 # Exceptions these operations can legitimately raise; anything else is a bug
 # and should propagate instead of being swallowed.
@@ -567,6 +567,56 @@ class PosterTuiApp(App):
         self._preview_native(path)
         self.query_one("#attach_btn").disabled = False
 
+    @staticmethod
+    def _terminal_supports_sixel() -> bool:
+        """Live-probe the terminal for sixel support (DEC DA1).
+
+        Writes ``ESC [ c`` and looks for private parameter 4 in the reply.
+        Reliable across SSH, where env vars like KONSOLE_VERSION do not
+        propagate. Returns False when the probe cannot complete.
+        """
+        import select
+        import termios
+        try:
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            tty = termios.tcgetattr(fd)
+            tty[3] &= ~(termios.ICANON | termios.ECHO)
+            tty[6][termios.VMIN] = 1
+            tty[6][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSANOW, tty)
+            sys.stdout.write("\x1b[c")
+            sys.stdout.flush()
+            resp = b""
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if r:
+                resp = os.read(fd, 1024)
+            termios.tcsetattr(fd, termios.TCSANOW, old)
+            m = re.search(rb"\x1b\[\?([0-9;]*)c", resp)
+            return bool(m and "4" in m.group(1).decode().split(";"))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _pick_preview_format() -> str:
+        """Choose the best chafa format the terminal actually supports.
+
+        kitty/sixel graphics protocols only render in terminals that
+        implement them, yet chafa still exits 0 on unsupported terminals
+        (e.g. GNOME Terminal), so support is probed instead of trusting the
+        return code.
+        """
+        term = os.environ.get("TERM", "")
+        if os.environ.get("KITTY_WINDOW_ID") or "kitty" in term:
+            return "kitty"
+        if (os.environ.get("KONSOLE_VERSION")
+                or os.environ.get("TERM_PROGRAM") == "WezTerm"
+                or "sixel" in term
+                or os.environ.get("COLORTERM") == "sixel"
+                or PosterTuiApp._terminal_supports_sixel()):
+            return "sixel"
+        return "symbols"
+
     def _preview_native(self, path: str, info: str = ""):
         if not shutil.which("chafa"):
             self.query_one("#status").update("Install chafa for preview")
@@ -574,14 +624,17 @@ class PosterTuiApp(App):
         try:
             with self.suspend():
                 print("\033[2J\033[H", end="", flush=True)
-                for fmt in ("kitty", "sixel", "symbols"):
-                    args = ["chafa", "--format=" + fmt, "--", path]
-                    if fmt == "symbols":
-                        args = ["chafa", "--format=symbols", "--size=80x40",
-                                "--color-space=rgb", "--dither=fs", "--", path]
-                    ret = subprocess.run(args, timeout=10).returncode
-                    if ret == 0:
-                        break
+                fmt = self._pick_preview_format()
+                args = ["chafa", "--format=" + fmt, "--", path]
+                if fmt == "symbols":
+                    cols, rows = shutil.get_terminal_size((120, 40))
+                    size = f"{cols - 4}x{rows - 8}"
+                    args = ["chafa", "--format=symbols", "--size=" + size,
+                            "--color-space=rgb", "--dither=fs", "--", path]
+                try:
+                    subprocess.run(args, timeout=10)
+                except subprocess.SubprocessError:
+                    pass
                 if info:
                     safe = re.sub(r"[\x00-\x1f\x7f]", "", info)
                     print(f"\n{safe}", flush=True)
@@ -1117,7 +1170,7 @@ def main():
         missing.append("chafa")
     if missing:
         print(f"Missing: {', '.join(missing)}")
-        print("Install with your package manager")
+        print(deps.hint(missing))
         sys.exit(1)
     app = PosterTuiApp()
     app.run()
