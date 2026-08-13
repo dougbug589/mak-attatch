@@ -389,7 +389,7 @@ class PosterPreviewDialog(QDialog):
 
     def done(self, result):
         if self._loader is not None and self._loader.isRunning():
-            self._loader.wait(5000)
+            self._loader.wait()
         super().done(result)
 
     def _load(self):
@@ -451,7 +451,8 @@ class PosterPickDialog(QDialog):
 
     def done(self, result):
         if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(5000)
+            self._worker.wait()
+        self.grid.wait_for_loaders()
         super().done(result)
 
     def _on_loaded(self, posters):
@@ -734,7 +735,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         active = self.__dict__.get("_active_workers") or []
         for worker in list(active):
-            worker.wait(5000)
+            worker.wait()
         super().closeEvent(event)
 
     def _setup_api_key(self):
@@ -787,13 +788,18 @@ class MainWindow(QMainWindow):
         chosen = menu.exec(self.file_list.mapToGlobal(pos))
         if chosen is remove_act:
             item = self.file_list.itemAt(pos)
-            if item is not None:
-                path = item.data(Qt.ItemDataRole.UserRole)
-                if path in self.video_paths:
-                    self.video_paths.remove(path)
-                    self.selected_video_paths.discard(path)
-                    self.file_list.takeItem(self.file_list.row(item))
-                    self._refresh_file_rows()
+            if item is None:
+                return
+            if item not in self.file_list.selectedItems():
+                self.file_list.setCurrentItem(item)
+            selected = {
+                it.data(Qt.ItemDataRole.UserRole)
+                for it in self.file_list.selectedItems()
+                if it.data(Qt.ItemDataRole.UserRole)
+            }
+            self.video_paths = [p for p in self.video_paths if p not in selected]
+            self.selected_video_paths.difference_update(selected)
+            self._refresh_file_rows()
         elif chosen is clear_act:
             self._clear_files()
 

@@ -118,11 +118,16 @@ class PosterGrid(QScrollArea):
             if same:
                 self._selected_card = card
 
+    def wait_for_loaders(self):
+        for card in self.cards:
+            if card.loader is not None and card.loader.isRunning():
+                card.loader.wait()
+
     def clear(self):
         self._selected_card = None
         for card in self.cards:
             if card.loader is not None and card.loader.isRunning():
-                card.loader.wait(2000)
+                card.loader.wait()
             card.setParent(None)
             card.deleteLater()
         self.cards.clear()
