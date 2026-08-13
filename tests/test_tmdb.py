@@ -67,6 +67,7 @@ class SearchTest(unittest.TestCase):
         url, params = fetch.call_args.args[0], fetch.call_args.kwargs["params"]
         self.assertIn("The Godfather", params["query"])
         self.assertEqual(params.get("year"), "1972")
+        self.assertIn("search/movie", url)
 
 
 class FetchRedirectTest(unittest.TestCase):

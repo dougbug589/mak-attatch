@@ -8,19 +8,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import VERSION
-
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
-    Button, Checkbox, DataTable, Footer, Header, Input, Label, ListItem, ListView,
-    ProgressBar, Static,
+    Button,
+    Checkbox,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    ProgressBar,
+    Static,
 )
 
 import config
+from config import VERSION
 from core import attacher, autoattach, parser, scanner, tmdb
 
 
@@ -342,7 +350,8 @@ class PosterTuiApp(App):
             resolved = autoattach.resolve_groups(groups, api_delay=delay, progress=cb)
             self.call_from_thread(self._on_scan_resolved, resolved)
         except Exception as e:
-            self.call_from_thread(lambda: self.query_one("#status").update(f"Scan failed: {e}"))
+            msg = f"Scan failed: {e}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     def _on_scan_resolved(self, resolved: list):
         ok = sum(1 for e in resolved if e["status"] == "ok")
@@ -389,7 +398,8 @@ class PosterTuiApp(App):
             )
             self.call_from_thread(self._on_auto_attach_done, summary)
         except Exception as e:
-            self.call_from_thread(lambda: self.query_one("#status").update(f"Auto-attach failed: {e}"))
+            msg = f"Auto-attach failed: {e}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     def _on_auto_attach_done(self, summary: dict):
         self._refresh_file_glyphs()
@@ -758,7 +768,8 @@ class PosterTuiApp(App):
                 msg = f"Attached: {ok}, Failed: {fail}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
         except Exception as e:
-            self.call_from_thread(lambda: self.query_one("#status").update(f"Error: {e}"))
+            msg = f"Error: {e}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
         finally:
             if poster_path and poster_path != self.local_poster_path:
                 try:
@@ -819,7 +830,10 @@ class PosterTuiApp(App):
                 ok += 1
             except Exception:
                 fail += 1
-        msg = f"Removed metadata from {ok} file(s)" if fail == 0 else f"Removed metadata: {ok}, Failed: {fail}"
+        if fail == 0:
+            msg = f"Removed metadata from {ok} file(s)"
+        else:
+            msg = f"Removed metadata: {ok}, Failed: {fail}"
         self.call_from_thread(lambda: self.query_one("#status").update(msg))
 
     @on(Button.Pressed, "#convert_btn")
@@ -1004,10 +1018,11 @@ class ReviewScreen(ModalScreen[tuple | None]):
     def on_mount(self):
         table = self.query_one("#review_table")
         table.add_columns("✓", "Title", "Season", "Files", "Status", "Poster")
+        status_map = {"ok": "matched", "no-match": "unmatched", "error": "error"}
         for i, e in enumerate(self.resolved):
             g = e["group"]
             season = f"S{g.season}" if g.season is not None else "-"
-            status = {"ok": "matched", "no-match": "unmatched", "error": "error"}.get(e["status"], "?")
+            status = status_map.get(e["status"], "?")
             poster = "custom" if e.get("poster") else ("TMDB" if e["status"] == "ok" else "-")
             marker = "●" if i in self._all_ok else "○"
             table.add_row(marker, g.title, season, str(len(g.files)), status, poster)
