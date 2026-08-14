@@ -111,6 +111,7 @@ if (-not (Test-Command "mkvpropedit")) {
 }
 
 # --- Auto-locate MKVToolNix if still not on PATH ---
+$mkvPersisted = $false
 if (-not (Test-Command "mkvpropedit")) {
     Write-Info "Looking for MKVToolNix install location..."
     $mkvDir = $null
@@ -132,6 +133,7 @@ if (-not (Test-Command "mkvpropedit")) {
             $newPath = $userPath.TrimEnd(';') + ";" + $mkvDir
             [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
             Write-Ok "Added MKVToolNix to User PATH (mkvpropedit, mkvmerge, mkvextract)"
+            $mkvPersisted = $true
         }
         $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
         if (Test-Command "mkvpropedit") {
@@ -167,6 +169,11 @@ Write-Info "Installing Python packages (GUI mode)..."
 # --- Done ---
 Write-Ok "Setup complete."
 Write-Host ""
+if ($mkvPersisted) {
+    Write-Warn "MKVToolNix was just added to your User PATH."
+    Write-Info "This terminal's PATH is still old. Close it, open a new one, then launch:"
+    Write-Host ""
+}
 Write-Host "Launch the GUI:" -ForegroundColor Cyan
 Write-Host "    .\.venv\Scripts\python.exe main.py" -ForegroundColor White
 Write-Host ""
