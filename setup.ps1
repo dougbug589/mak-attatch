@@ -34,14 +34,21 @@ if (-not $hasWinget) {
     Write-Warn "winget not found. Manual install required for system deps."
 }
 
-# --- Check Python ---
+# --- Check Python (reject Microsoft Store App Execution alias) ---
 $pythonCmd = $null
-if (Test-Command "python") { $pythonCmd = "python" }
-elseif (Test-Command "py") { $pythonCmd = "py" }
-elseif (Test-Command "python3") { $pythonCmd = "python3" }
+$pyVer = $null
+foreach ($candidate in @("python", "py", "python3")) {
+    if (-not (Test-Command $candidate)) { continue }
+    $ver = & $candidate --version 2>&1
+    if ($LASTEXITCODE -eq 0 -and $ver -match "Python (\d+)\.(\d+)") {
+        $pythonCmd = $candidate
+        $pyVer = $ver
+        break
+    }
+}
 
 if (-not $pythonCmd) {
-    Write-Err "Python not found in PATH."
+    Write-Err "Python not found (or only the Microsoft Store stub is installed)."
     if ($hasWinget) {
         Write-Info "Install with: winget install Python.Python.3.11"
     } else {
@@ -51,7 +58,6 @@ if (-not $pythonCmd) {
 }
 
 # Verify Python version >= 3.10
-$pyVer = & $pythonCmd --version 2>&1
 if ($pyVer -match "Python (\d+)\.(\d+)") {
     $maj = [int]$Matches[1]; $min = [int]$Matches[2]
     if ($maj -lt 3 -or ($maj -eq 3 -and $min -lt 10)) {
@@ -104,6 +110,41 @@ if (-not (Test-Command "mkvpropedit")) {
     Write-Ok "mkvpropedit now on PATH"
 }
 
+# --- Auto-locate MKVToolNix if still not on PATH ---
+if (-not (Test-Command "mkvpropedit")) {
+    Write-Info "Looking for MKVToolNix install location..."
+    $mkvDir = $null
+
+    $mkvReg = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "*MKVToolNix*" -and $_.InstallLocation } |
+        Select-Object -First 1
+    if ($mkvReg) { $mkvDir = $mkvReg.InstallLocation }
+
+    if (-not $mkvDir) {
+        $mkvDir = Get-ChildItem $env:ProgramFiles, ${env:ProgramFiles(x86)} -Directory -Filter "MKVToolNix*" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+    }
+
+    if ($mkvDir -and (Test-Path (Join-Path $mkvDir "mkvpropedit.exe"))) {
+        Write-Info "Found MKVToolNix at: $mkvDir"
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        if ($userPath -notlike "*$mkvDir*") {
+            $newPath = $userPath.TrimEnd(';') + ";" + $mkvDir
+            [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+            Write-Ok "Added MKVToolNix to User PATH (mkvpropedit, mkvmerge, mkvextract)"
+        }
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+        if (Test-Command "mkvpropedit") {
+            Write-Ok "mkvpropedit now on PATH"
+        } else {
+            Write-Warn "mkvpropedit still not found. Add '$mkvDir' to PATH manually, then re-run."
+        }
+    } else {
+        Write-Warn "MKVToolNix install location not found."
+        Write-Info "Add the MKVToolNix directory (containing mkvpropedit.exe) to PATH manually, then re-run."
+    }
+}
+
 # --- Create venv ---
 if (Test-Path ".venv") {
     Write-Warn "Existing .venv found. Removing..."
@@ -127,9 +168,10 @@ Write-Info "Installing Python packages (GUI mode)..."
 Write-Ok "Setup complete."
 Write-Host ""
 Write-Host "Launch the GUI:" -ForegroundColor Cyan
-Write-Host "    $venvPython main.py" -ForegroundColor White
+Write-Host "    .\.venv\Scripts\python.exe main.py" -ForegroundColor White
 Write-Host ""
-Write-Host "Or activate the venv first:" -ForegroundColor Cyan
+Write-Host "Optional: activate the venv first (use if .venv\Scripts\activate is blocked):" -ForegroundColor Cyan
+Write-Host "    Set-ExecutionPolicy -Scope Process Bypass" -ForegroundColor White
 Write-Host "    .venv\Scripts\activate" -ForegroundColor White
 Write-Host "    python main.py" -ForegroundColor White
 Write-Host ""

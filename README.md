@@ -120,7 +120,15 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 **Launch:**
 
 ```powershell
-.venv\Scripts\python main.py
+.\.venv\Scripts\python.exe main.py
+```
+
+**Optional: activate the venv first** (use `Set-ExecutionPolicy -Scope Process Bypass` if `.venv\Scripts\activate` is blocked by the execution policy):
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.venv\Scripts\activate
+python main.py
 ```
 
 **Manual install (if winget is unavailable):**
@@ -132,6 +140,7 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 
 ```powershell
 python -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
 .venv\Scripts\activate
 pip install PyQt6 requests guessit
 python main.py
