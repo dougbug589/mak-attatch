@@ -98,6 +98,13 @@ def yazi_keyring_commands() -> list[str]:
     ]
 
 
+def yazi_copr_commands() -> list[str]:
+    """Commands to enable the yazi COPR repository (Fedora/EL only)."""
+    if package_manager() != "dnf":
+        return []
+    return ["sudo dnf copr enable -y lihaohong/yazi"]
+
+
 def hint(missing: list[str] | None = None) -> str:
     """Human-readable install hint for the runtime dependency gate."""
     missing = missing if missing is not None else missing_binaries()
@@ -110,6 +117,9 @@ def hint(missing: list[str] | None = None) -> str:
     if "yazi" in missing and package_manager() == "apt":
         lines.append("yazi also needs its apt repository keyring first:")
         lines.extend(f"  {c}" for c in yazi_keyring_commands())
+    if "yazi" in missing and package_manager() == "dnf":
+        lines.append("yazi also needs its COPR repository enabled first:")
+        lines.extend(f"  {c}" for c in yazi_copr_commands())
     return "\n".join(lines)
 
 
@@ -127,12 +137,15 @@ def _main() -> int:
         print(install_command())
     elif arg == "--yazi-keyring":
         print("\n".join(yazi_keyring_commands()))
+    elif arg == "--yazi-copr":
+        print("\n".join(yazi_copr_commands()))
     elif arg == "--hint":
         print(hint())
     else:
         print(__doc__)
         print("Usage: python3 core/deps.py "
-              "[--distro|--pm|--packages|--missing|--install-cmd|--yazi-keyring|--hint]")
+              "[--distro|--pm|--packages|--missing|--install-cmd"
+              "|--yazi-keyring|--yazi-copr|--hint]")
         return 1
     return 0
 

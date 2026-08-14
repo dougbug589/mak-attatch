@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.2 — 2026-08-14
+
+### Fixed
+
+- **Fedora/EL installs of yazi failed**: `sudo dnf install -y ffmpeg mkvtoolnix chafa yazi curl` errored with `No match for argument: yazi` because yazi is only in the `lihaohong/yazi` COPR. setup.sh now enables that COPR first (via new `core/deps.py --yazi-copr`), both in print mode and `--auto-install`.
+- **README "From Source"**: now documents running the app via the venv Python (`.venv/bin/python ...` or activating the venv), since `./main.py`'s `#!/usr/bin/env python3` shebang resolves to system Python and fails with `ModuleNotFoundError: No module named 'PyQt6'` on distros that don't use the venv by default.
+
+### Improved
+
+- **core/deps.py**: Added `yazi_copr_commands()` (dnf mirror of the apt keyring step) and included it in the runtime `hint()` so the TUI/GUI/CLI dependency gate also mentions the COPR step on Fedora/EL.
+- **tests/test_deps.py**: +3 tests (117 total) for the COPR commands, hint output, and CLI flag.
+
 ## v1.3.1 — 2026-08-13
 
 ### Improved

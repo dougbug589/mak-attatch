@@ -1,3 +1,5 @@
+import contextlib
+import io
 import unittest
 from unittest import mock
 
@@ -41,6 +43,25 @@ class DepsDetectionTest(unittest.TestCase):
         with mock.patch.object(deps, "package_manager", return_value="pacman"):
             self.assertEqual(deps.yazi_keyring_commands(), [])
 
+    def test_yazi_copr_only_for_dnf(self):
+        with mock.patch.object(deps, "package_manager", return_value="dnf"):
+            cmds = deps.yazi_copr_commands()
+            self.assertEqual(cmds, ["sudo dnf copr enable -y lihaohong/yazi"])
+        with mock.patch.object(deps, "package_manager", return_value="apt"):
+            self.assertEqual(deps.yazi_copr_commands(), [])
+
+    def test_yazi_copr_cli(self):
+        with mock.patch.object(deps, "package_manager", return_value="dnf"), \
+             mock.patch.object(deps.sys, "argv", ["deps.py", "--yazi-copr"]), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(deps._main(), 0)
+            self.assertIn("dnf copr enable -y lihaohong/yazi", out.getvalue())
+        with mock.patch.object(deps, "package_manager", return_value="apt"), \
+             mock.patch.object(deps.sys, "argv", ["deps.py", "--yazi-copr"]), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(deps._main(), 0)
+            self.assertEqual(out.getvalue().strip(), "")
+
     def test_missing_binaries_filters_path(self):
         with mock.patch.object(
                 deps.shutil, "which",
@@ -53,6 +74,12 @@ class DepsDetectionTest(unittest.TestCase):
             hint = deps.hint(["yazi"])
             self.assertIn("sudo apt install -y", hint)
             self.assertIn("yazi-keyring.gpg", hint)
+
+    def test_hint_includes_copr_for_dnf(self):
+        with mock.patch.object(deps, "package_manager", return_value="dnf"):
+            hint = deps.hint(["yazi"])
+            self.assertIn("sudo dnf install -y", hint)
+            self.assertIn("dnf copr enable -y lihaohong/yazi", hint)
 
     def test_hint_empty_when_no_missing(self):
         self.assertEqual(deps.hint([]), "")

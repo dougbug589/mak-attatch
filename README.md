@@ -88,9 +88,24 @@ This installs the full package: `/usr/bin/mak-attatch`, `/usr/bin/mak-attatch-tu
 git clone https://github.com/dougbug589/mak-attatch.git
 cd mak-attatch
 ./setup.sh          # creates .venv and installs Python deps
+```
+
+Run the app using the virtual environment Python (required on Fedora, Ubuntu, and other distros where the shebang resolves to system Python):
+
+```bash
+# Method 1: explicit venv path (always works)
 .venv/bin/python main.py       # GUI
 .venv/bin/python poster-tui    # TUI
+.venv/bin/python cli.py --help # CLI
+
+# Method 2: activate venv, then use 'python' (not './script')
+source .venv/bin/activate
+python main.py
+python poster-tui
+python cli.py --help
 ```
+
+Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/env python3`) finds system Python, which lacks the installed dependencies.
 
 ### Uninstall
 
@@ -295,7 +310,7 @@ mak-attatch/
 ├── setup.sh             # Virtual environment setup
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
-├── tests/               # Test suite (114 tests)
+├── tests/               # Test suite (117 tests)
 │   ├── test_attacher.py
 │   ├── test_autoattach.py
 │   ├── test_cli.py

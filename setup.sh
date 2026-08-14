@@ -57,6 +57,12 @@ else
                 eval "$c"
             done
         fi
+        if [[ " ${MISSING[*]} " == *" yazi "* ]] && [ "$PM" = "dnf" ]; then
+            echo "Enabling yazi COPR repository..."
+            python3 "$HERE/core/deps.py" --yazi-copr | while IFS= read -r c; do
+                eval "$c"
+            done
+        fi
         eval "$INSTALL_CMD"
         echo
     elif [ -n "$INSTALL_CMD" ]; then
@@ -66,6 +72,13 @@ else
             echo
             echo "yazi also needs its apt repository keyring first:"
             python3 "$HERE/core/deps.py" --yazi-keyring | while IFS= read -r c; do
+                echo "  $c"
+            done
+        fi
+        if [[ " ${MISSING[*]} " == *" yazi "* ]] && [ "$PM" = "dnf" ]; then
+            echo
+            echo "yazi also needs its COPR repository enabled first:"
+            python3 "$HERE/core/deps.py" --yazi-copr | while IFS= read -r c; do
                 echo "  $c"
             done
         fi
