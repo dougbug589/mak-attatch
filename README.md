@@ -107,6 +107,41 @@ python cli.py --help
 
 Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/env python3`) finds system Python, which lacks the installed dependencies.
 
+### Windows (GUI only)
+
+**Prerequisites:** Windows 10/11 with `winget` (built-in on Windows 10 20H2+).
+
+```powershell
+git clone https://github.com/dougbug589/mak-attatch.git
+cd mak-attatch
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+**Launch:**
+
+```powershell
+.venv\Scripts\python main.py
+```
+
+**Manual install (if winget is unavailable):**
+
+- Install Python 3.10+ from python.org
+- Install ffmpeg and add to PATH
+- Install MKVToolNix and add to PATH
+- Create venv and install deps:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install PyQt6 requests guessit
+python main.py
+```
+
+**Notes:**
+
+- TUI (`poster-tui`) and CLI (`cli.py`) are not supported on Windows.
+- The GUI works identically to Linux — drag-and-drop, folder scan, metadata embed all function the same.
+
 ### Uninstall
 
 **AUR install:**
@@ -328,7 +363,8 @@ mak-attatch/
 ├── config.py            # Configuration management
 ├── convert.sh           # Standalone bash utility (single file)
 ├── requirements.txt     # Python dependencies
-├── setup.sh             # Virtual environment setup
+├── setup.sh             # Linux/macOS setup
+├── setup.ps1            # Windows setup (GUI only)
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
 ├── tests/               # Test suite (117 tests)
