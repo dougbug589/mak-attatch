@@ -109,8 +109,18 @@ Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/e
 
 ### Uninstall
 
+**AUR install:**
+
 ```bash
 sudo pacman -Rns mak-attatch   # removes package + config + unused deps
+```
+
+**Source install:**
+
+```bash
+cd ~/mak-attatch
+sudo make uninstall            # if you ran `make install`
+cd ~ && rm -rf mak-attatch ~/.config/mak-attatch
 ```
 
 ---
@@ -278,11 +288,21 @@ sudo pacman -S python-textual yazi chafa  # TUI extras
 **Debian/Ubuntu:**
 ```bash
 sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
+sudo apt install python3-textual chafa  # TUI extras
+```
+
+yazi is not in the default repos — enable its apt repo first:
+```bash
+curl -fsSL https://yazi-rs.github.io/builds/yazi-keyring.gpg | sudo tee /usr/share/keyrings/yazi-keyring.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/yazi-keyring.gpg] https://yazi-rs.github.io/builds/ stable main' | sudo tee /etc/apt/sources.list.d/yazi.list >/dev/null
+sudo apt update && sudo apt install yazi
 ```
 
 **Fedora:**
 ```bash
+sudo dnf copr enable -y lihaohong/yazi   # yazi is not in the default repos
 sudo dnf install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg mkvtoolnix
+sudo dnf install python3-textual chafa yazi  # TUI extras
 ```
 
 ---
@@ -303,7 +323,8 @@ mak-attatch/
 │   ├── attacher.py      # MKV/MP4 attachment engine
 │   ├── parser.py        # Filename title extraction
 │   ├── scanner.py       # Recursive folder scan & grouping
-│   └── autoattach.py    # Title matching & bulk attach
+│   ├── autoattach.py    # Title matching & bulk attach
+│   └── deps.py          # Distro-aware dependency detection & install hints
 ├── config.py            # Configuration management
 ├── convert.sh           # Standalone bash utility (single file)
 ├── requirements.txt     # Python dependencies
@@ -325,6 +346,12 @@ mak-attatch/
 
 ## Changelog
 
+### v1.3.2 — 2026-08-14
+- **Fixed** Fedora/EL yazi install: setup.sh now enables the `lihaohong/yazi` COPR before `dnf install` (via new `core/deps.py --yazi-copr`).
+- **Fixed** README "From Source": documents running via the venv Python (`.venv/bin/python ...`), since `./main.py`'s shebang resolves to system Python.
+- **Improved** `core/deps.py`: `yazi_copr_commands()` + runtime hint now mention the COPR step on Fedora/EL.
+- **Improved** Tests: +3 (117 total).
+
 ### v1.3.1 — 2026-08-13
 - **Improved** `setup.sh`: Distro-aware dependency detection (apt/pacman/dnf).
 - **Improved** `core/deps.py`: Shared helper for runtime dependency messages.
@@ -333,8 +360,6 @@ mak-attatch/
 
 ### v1.3.0 — 2026-08-13
 - **Added** `cli.py`: Headless CLI mode (`mak-attatch-cli`) for scripts and automation.
-- **Improved** `setup.sh`: Distro-aware dependency detection (apt/pacman/dnf).
-- **Improved** Terminal poster preview: sixel/kitty capability probe with fallback.
 
 ### v1.2.0 — 2026-08-13
 - **Fixed** Replaced broad `except Exception` with specific exception types across core, UI, and TUI.
