@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -113,6 +114,25 @@ class TestAttacher(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_windows_tool_path_prepends_known_dirs(self):
+        with patch("sys.platform", "win32"), \
+                patch("os.path.isdir", return_value=True), \
+                patch.dict(os.environ, {
+                    "ProgramFiles": r"C:\Program Files",
+                    "ProgramFiles(x86)": r"C:\Program Files (x86)",
+                    "LOCALAPPDATA": r"C:\Users\x\AppData\Local",
+                    "PATH": r"C:\Windows",
+                }, clear=False):
+            attacher._ensure_windows_tool_path()
+            self.assertIn("MKVToolNix", os.environ["PATH"])
+            self.assertIn(os.path.join("WinGet", "Links"), os.environ["PATH"])
+
+    def test_windows_tool_path_skipped_off_windows(self):
+        with patch("sys.platform", "linux"), \
+                patch.dict(os.environ, {"PATH": r"C:\Windows"}, clear=False):
+            attacher._ensure_windows_tool_path()
+            self.assertEqual(os.environ["PATH"], r"C:\Windows")
 
     def test_injection_guard(self):
         for bad in ["-V", "--version", "../etc/passwd"]:

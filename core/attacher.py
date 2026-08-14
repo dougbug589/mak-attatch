@@ -7,6 +7,34 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+def _ensure_windows_tool_path() -> None:
+    """Make media tools resolvable on Windows from a stale terminal.
+
+    winget installs Gyan.FFmpeg and MKVToolNix without refreshing the PATH
+    of already-open terminals, so the GUI can be launched from a session
+    whose PATH lacks the install directories. Prepend the known locations
+    so check_tools() and subprocess calls find the tools anyway.
+    """
+    if sys.platform != "win32":
+        return
+    dirs = []
+    for var in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(var)
+        if base:
+            dirs.append(os.path.join(base, "MKVToolNix"))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        dirs.append(os.path.join(local, "Microsoft", "WinGet", "Links"))
+    path = os.environ.get("PATH", "")
+    for d in dirs:
+        if d and os.path.isdir(d) and d not in path:
+            path = d + os.pathsep + path
+    os.environ["PATH"] = path
+
+
+_ensure_windows_tool_path()
+
+
 def check_tools():
     missing = []
     if not shutil.which("ffmpeg"):
