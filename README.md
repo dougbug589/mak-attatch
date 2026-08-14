@@ -150,6 +150,7 @@ python main.py
 
 - TUI (`poster-tui`) and CLI (`cli.py`) are not supported on Windows.
 - The GUI works identically to Linux — drag-and-drop, folder scan, metadata embed all function the same.
+- Windows File Explorer shows cover art only for MP4/MOV (`attached_pic`). Posters attached to MKV/WebM won't appear in Explorer thumbnails — a Microsoft limitation; VLC, Plex, and Jellyfin display them normally.
 
 ### Uninstall
 
