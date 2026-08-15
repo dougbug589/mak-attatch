@@ -56,11 +56,25 @@
 
 ### Desktop GUI (PyQt6)
 
-*Search TMDB, browse posters, preview, attach — all in one window.*
+
+
+https://github.com/user-attachments/assets/157be17e-f00c-4e89-bad4-3a4eee3c7293
+<img width="1920" height="1080" alt="Screenshot_20260815_095708" src="https://github.com/user-attachments/assets/2b121fc0-0a8c-40db-8392-0fb8c7e21e81" />
+<img width="1920" height="1080" alt="ubuntu-desktop" src="https://github.com/user-attachments/assets/cc9b8919-a312-45d2-b5d1-e652f2bfd47f" />
+
+
+
 
 ### Terminal TUI (Textual)
 
-*Keyboard-driven workflow with `yazi` file browser integration.*
+
+
+https://github.com/user-attachments/assets/aa7fd202-4e7b-4ec0-ab32-24242cc271e9
+<img width="1920" height="1080" alt="ubuntu-tui" src="https://github.com/user-attachments/assets/222d006c-21bf-4758-aade-b7efb35c0f5f" />
+<img width="1920" height="1080" alt="Screenshot_20260815_100100" src="https://github.com/user-attachments/assets/47e6f5b2-8da1-43d9-85c2-ed4b9500a860" />
+
+
+
 
 ---
 
