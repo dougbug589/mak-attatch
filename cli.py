@@ -100,53 +100,77 @@ def _download_first_poster(match: dict) -> str:
     return poster_path
 
 
+def _scrape_metadata(match: dict) -> dict:
+    try:
+        return tmdb.get_details(match["id"], match["media_type"])
+    except OPERATION_ERRORS as e:
+        _fail(f"Failed to scrape metadata: {e}")
+
+
 def _cmd_attach(args) -> None:
-    _require_api_key()
+    # Attaching a local poster without metadata never touches TMDB, so it must
+    # not require an API key.
+    if args.search or args.embed_metadata:
+        _require_api_key()
     _check_tools()
 
-    metadata = None
-    poster_path = None
-    own_poster = False
-    try:
-        if args.poster:
-            poster_path = args.poster
-            if args.embed_metadata:
-                match = _resolve_match(None, args.file[0])
-                try:
-                    metadata = tmdb.get_details(match["id"], match["media_type"])
-                except OPERATION_ERRORS as e:
-                    _fail(f"Failed to scrape metadata: {e}")
-        else:
-            match = _resolve_match(args.search, args.file[0])
-            if args.embed_metadata:
-                try:
-                    metadata = tmdb.get_details(match["id"], match["media_type"])
-                except OPERATION_ERRORS as e:
-                    _fail(f"Failed to scrape metadata: {e}")
-            poster_path = _download_first_poster(match)
-            own_poster = True
+    files = [os.path.expanduser(f) for f in args.file]
+    local_poster = os.path.expanduser(args.poster) if args.poster else None
 
-        ok = fail = 0
-        first_error = None
-        for filepath in args.file:
-            try:
-                out = attacher.full_attach(
-                    filepath, poster_path, metadata=metadata, to_mkv=args.to_mkv
-                )
-                if out != filepath:
-                    print(f"{filepath} -> {out}")
-                ok += 1
-            except OPERATION_ERRORS as e:
-                fail += 1
-                if first_error is None:
-                    first_error = f"{Path(filepath).name}: {e}"
+    if args.dry_run:
+        for filepath in files:
+            print(f"[dry-run] Would attach poster to {filepath}")
+        return
+
+    own_posters: list[str] = []
+    ok = fail = 0
+    first_error = None
+
+    def attach(filepath: str, poster_path: str, metadata: dict | None) -> None:
+        nonlocal ok, fail, first_error
+        try:
+            out = attacher.full_attach(
+                filepath, poster_path, metadata=metadata, to_mkv=args.to_mkv
+            )
+            if out != filepath:
+                print(f"{filepath} -> {out}")
+            ok += 1
+        except OPERATION_ERRORS as e:
+            fail += 1
+            if first_error is None:
+                first_error = f"{Path(filepath).name}: {e}"
+
+    try:
+        if args.search:
+            # An explicit query names one title, so it applies to the batch.
+            match = _resolve_match(args.search, files[0])
+            metadata = _scrape_metadata(match) if args.embed_metadata else None
+            poster_path = local_poster or _download_first_poster(match)
+            if not local_poster:
+                own_posters.append(poster_path)
+            for filepath in files:
+                attach(filepath, poster_path, metadata)
+        else:
+            # No explicit source: resolve each file on its own so a batch of
+            # different titles does not inherit the first file's poster/metadata.
+            for filepath in files:
+                match = None
+                if local_poster is None or args.embed_metadata:
+                    match = _resolve_match(None, filepath)
+                poster_path = local_poster
+                if poster_path is None:
+                    poster_path = _download_first_poster(match)
+                    own_posters.append(poster_path)
+                metadata = _scrape_metadata(match) if args.embed_metadata else None
+                attach(filepath, poster_path, metadata)
+
         if fail:
             _fail(f"Attached {ok}, failed {fail} — {first_error}")
         print(f"Attached poster to {ok} file(s)")
     finally:
-        if own_poster and poster_path:
+        for path in own_posters:
             try:
-                os.unlink(poster_path)
+                os.unlink(path)
             except OSError:
                 pass
 
@@ -155,9 +179,15 @@ def _cmd_remove(args) -> None:
     _check_tools()
     if args.poster_only and args.metadata_only:
         _fail("--poster-only and --metadata-only are mutually exclusive")
+    files = [os.path.expanduser(f) for f in args.file]
+    if args.dry_run:
+        what = "metadata" if args.metadata_only else "poster"
+        for filepath in files:
+            print(f"[dry-run] Would remove {what} from {filepath}")
+        return
     fail = 0
     first_error = None
-    for filepath in args.file:
+    for filepath in files:
         try:
             if args.metadata_only:
                 attacher.remove_metadata(filepath)
@@ -170,13 +200,13 @@ def _cmd_remove(args) -> None:
             if first_error is None:
                 first_error = f"{Path(filepath).name}: {e}"
     if fail:
-        _fail(f"Removed from {len(args.file) - fail} file(s), failed {fail} — {first_error}")
+        _fail(f"Removed from {len(files) - fail} file(s), failed {fail} — {first_error}")
 
 
 def _cmd_scan(args) -> None:
     _require_api_key()
     _check_tools()
-    root = args.directory
+    root = os.path.expanduser(args.directory)
     if not os.path.isdir(root):
         _fail(f"Not a directory: {root}")
 
@@ -193,6 +223,19 @@ def _cmd_scan(args) -> None:
     delay = config.get("scan_api_delay") or 0.25
     resolved = autoattach.resolve_groups(groups, api_delay=delay, progress=resolve_progress)
     ok = sum(1 for e in resolved if e["status"] == "ok")
+
+    if args.dry_run:
+        for entry in resolved:
+            group = entry["group"]
+            match = entry.get("match")
+            if entry["status"] == "ok" and match:
+                print(f"[dry-run] {group.title} -> {match['title']} "
+                      f"({match.get('year') or '?'}) [{match['media_type']}]")
+            else:
+                print(f"[dry-run] {group.title} -> no match")
+        print(f"[dry-run] {ok} of {len(resolved)} group(s) matched; nothing attached")
+        return
+
     if ok == 0:
         _fail("No groups matched on TMDB")
 
@@ -235,6 +278,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="scrape TMDB metadata and embed it with the poster")
     attach.add_argument("--to-mkv", action="store_true",
                         help="remux non-MKV sources to MKV before attaching")
+    attach.add_argument("--dry-run", action="store_true",
+                        help="show what would be attached without changing files")
     attach.set_defaults(func=_cmd_attach)
 
     remove = sub.add_parser("remove", help="remove posters and/or metadata")
@@ -244,6 +289,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="remove only the attached poster (default)")
     remove.add_argument("--metadata-only", action="store_true",
                         help="remove only the embedded metadata")
+    remove.add_argument("--dry-run", action="store_true",
+                        help="show what would be removed without changing files")
     remove.set_defaults(func=_cmd_remove)
 
     scan = sub.add_parser("scan", help="scan a folder and auto-attach posters")
@@ -254,6 +301,8 @@ def main(argv: list[str] | None = None) -> None:
                       help="remux non-MKV sources to MKV before attaching")
     scan.add_argument("--skip-existing", action="store_true",
                       help="skip files that already have a poster")
+    scan.add_argument("--dry-run", action="store_true",
+                      help="resolve matches and preview them without attaching")
     scan.set_defaults(func=_cmd_scan)
 
     args = parser.parse_args(argv)
