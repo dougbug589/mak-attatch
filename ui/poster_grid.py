@@ -107,6 +107,7 @@ class PosterGrid(QScrollArea):
         self.setWidget(self.container)
 
         self.cards: list[PosterCard] = []
+        self._pending: list[PosterCard] = []
         self._selected_card: PosterCard | None = None
 
     def load_posters(self, posters: list[dict]):
@@ -118,25 +119,48 @@ class PosterGrid(QScrollArea):
             self.cards.append(card)
 
     def select_by_poster(self, poster: dict):
+        key = poster.get("file_path") or poster.get("thumb_url")
         for card in self.cards:
-            same = card.poster.get("id") and card.poster["id"] == poster.get("id")
+            card_key = card.poster.get("file_path") or card.poster.get("thumb_url")
+            same = bool(key) and card_key == key
             card.set_selected(same)
             if same:
                 self._selected_card = card
 
-    def wait_for_loaders(self):
-        for card in self.cards:
-            if card.loader is not None and card.loader.isRunning():
-                card.loader.wait()
-
     def clear(self):
         self._selected_card = None
-        for card in self.cards:
-            if card.loader is not None and card.loader.isRunning():
-                card.loader.wait()
+        cards, self.cards = self.cards, []
+        pending = getattr(self, "_pending", None)
+        if pending is None:
+            pending = []
+            self._pending = pending
+        for card in cards:
+            self.flow.removeWidget(card)
             card.setParent(None)
-            card.deleteLater()
-        self.cards.clear()
+            loader = card.loader
+            if loader is None:
+                card.deleteLater()
+                continue
+            # Never wait on a network thread from the GUI thread. The pending
+            # list keeps the card (and its QThread) alive until it finishes.
+            try:
+                loader.loaded.disconnect(card._on_loaded)
+            except (TypeError, RuntimeError):
+                pass
+            if loader.isRunning():
+                pending.append(card)
+                loader.finished.connect(lambda c=card: self._release_card(c))
+            else:
+                card.deleteLater()
+
+    def _release_card(self, card):
+        pending = getattr(self, "_pending", None)
+        if pending is not None:
+            try:
+                pending.remove(card)
+            except ValueError:
+                pass
+        card.deleteLater()
 
 
 class QFlowLayout(QLayout):

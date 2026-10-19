@@ -463,6 +463,39 @@ class TestBatchAttachTargets(unittest.TestCase):
         self.assertEqual(captured["poster"], "/tmp/poster.jpg")
 
 
+class TestPosterGridSelection(unittest.TestCase):
+    class _FakeCard:
+        def __init__(self, poster):
+            self.poster = poster
+            self.selected = None
+
+        def set_selected(self, value):
+            self.selected = value
+
+    @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
+    def test_select_by_poster_matches_file_path(self):
+        from ui.poster_grid import PosterGrid
+
+        grid = PosterGrid.__new__(PosterGrid)
+        grid.cards = [self._FakeCard({"file_path": "/a.jpg"}),
+                      self._FakeCard({"file_path": "/b.jpg"})]
+        grid._selected_card = None
+        grid.select_by_poster({"file_path": "/b.jpg"})
+        self.assertEqual([c.selected for c in grid.cards], [False, True])
+        self.assertIs(grid._selected_card, grid.cards[1])
+
+    @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
+    def test_select_by_poster_falls_back_to_thumb_url(self):
+        from ui.poster_grid import PosterGrid
+
+        grid = PosterGrid.__new__(PosterGrid)
+        grid.cards = [self._FakeCard({"thumb_url": "https://img/a.jpg"}),
+                      self._FakeCard({"thumb_url": "https://img/b.jpg"})]
+        grid._selected_card = None
+        grid.select_by_poster({"thumb_url": "https://img/a.jpg"})
+        self.assertEqual([c.selected for c in grid.cards], [True, False])
+
+
 class TestConvertWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -278,6 +278,42 @@ class PosterWorker(QThread):
             self.error.emit(str(e))
 
 
+class PrepareWorker(QThread):
+    ready = pyqtSignal(str, object)
+    error = pyqtSignal(str)
+
+    def __init__(self, poster_url: str | None, local_poster: str | None,
+                 media: dict | None):
+        super().__init__()
+        self.poster_url = poster_url
+        self.local_poster = local_poster
+        self.media = media
+
+    def run(self):
+        poster_path = self.local_poster
+        own_poster = False
+        try:
+            if poster_path is None:
+                fd, poster_path = tempfile.mkstemp(suffix=".jpg")
+                os.close(fd)
+                os.chmod(poster_path, 0o600)
+                own_poster = True
+                tmdb.download_image(self.poster_url, poster_path)
+            metadata = None
+            if self.media:
+                metadata = tmdb.get_details(
+                    self.media["id"], self.media["media_type"]
+                )
+            self.ready.emit(poster_path, metadata)
+        except OPERATION_ERRORS as e:
+            if own_poster and poster_path and os.path.exists(poster_path):
+                try:
+                    os.unlink(poster_path)
+                except OSError:
+                    pass
+            self.error.emit(str(e))
+
+
 class BatchWorker(QThread):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
@@ -411,6 +447,40 @@ class AutoAttachWorker(QThread):
             self.error.emit(str(e))
 
 
+class MetadataWorker(QThread):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, videos: list, mode: str, current_media: dict | None = None):
+        super().__init__()
+        self.videos = videos
+        self.mode = mode
+        self.current_media = current_media
+
+    def run(self):
+        fail = []
+        total = len(self.videos)
+        # An explicit media selection only applies to a single file; a batch
+        # must resolve each filename on its own.
+        media = self.current_media if total == 1 else None
+        try:
+            for i, path in enumerate(self.videos):
+                self.progress.emit(i + 1, total, Path(path).name)
+                try:
+                    if self.mode == "scrape":
+                        metadata = tmdb.details_for_path(path, media)
+                        attacher.write_metadata(path, metadata)
+                    else:
+                        attacher.remove_metadata(path)
+                except OPERATION_ERRORS as e:
+                    fail.append(f"{Path(path).name}: {e}")
+        except OPERATION_ERRORS as e:
+            self.error.emit(str(e))
+            return
+        self.finished.emit(fail)
+
+
 class PosterPreviewDialog(QDialog):
     poster_selected = pyqtSignal(dict)
 
@@ -506,7 +576,6 @@ class PosterPickDialog(QDialog):
     def done(self, result):
         if self._worker is not None and self._worker.isRunning():
             self._worker.wait()
-        self.grid.wait_for_loaders()
         super().done(result)
 
     def _on_loaded(self, posters):
@@ -1182,56 +1251,27 @@ class MainWindow(QMainWindow):
         self.attach_btn.setEnabled(False)
         self.status_label.setText("Preparing poster...")
 
-        poster_path = None
-        metadata = None
-        used_batch = False
-        try:
-            if self.local_poster_path:
-                poster_path = self.local_poster_path
-            else:
-                fd, poster_path = tempfile.mkstemp(suffix=".jpg")
-                os.close(fd)
-                os.chmod(poster_path, 0o600)
-                tmdb.download_image(self.selected_poster["url"], poster_path)
+        media = self.current_media if self.meta_check.isChecked() else None
+        self._prepare_worker = PrepareWorker(
+            poster_url=None if self.local_poster_path else self.selected_poster["url"],
+            local_poster=self.local_poster_path,
+            media=media,
+        )
+        self._prepare_worker.ready.connect(
+            lambda poster_path, metadata: self._batch_attach(
+                targets, poster_path, metadata,
+                to_mkv=self.mkv_check.isChecked(),
+            )
+        )
+        self._prepare_worker.error.connect(self._on_attach_error)
+        self._track_worker(self._prepare_worker)
+        self._prepare_worker.start()
 
-            if self.meta_check.isChecked() and self.current_media:
-                self.status_label.setText("Scraping metadata...")
-                metadata = tmdb.get_details(
-                    self.current_media["id"], self.current_media["media_type"]
-                )
-
-            if len(targets) == 1:
-                target = targets[0]
-                out = attacher.full_attach(target, poster_path, metadata=metadata,
-                                           to_mkv=self.mkv_check.isChecked())
-                if out != target:
-                    if target in self.selected_video_paths:
-                        self.selected_video_paths.discard(target)
-                        self.selected_video_paths.add(out)
-                    if self.video_path == target:
-                        self.video_path = out
-                    for i, p in enumerate(self.video_paths):
-                        if p == target:
-                            self.video_paths[i] = out
-                    self._refresh_file_rows()
-                    target = out
-                name = Path(target).name
-                self.status_label.setText(f"Poster attached to {name}!")
-                QMessageBox.information(self, "Done", f"Poster attached to {name}!")
-            else:
-                used_batch = True
-                self._batch_attach(targets, poster_path, metadata,
-                                   to_mkv=self.mkv_check.isChecked())
-        except OPERATION_ERRORS as e:
-            self.status_label.setText(f"Error: {e}")
-            QMessageBox.critical(self, "Error", f"Attachment failed:\n{e}")
-        finally:
-            if not used_batch:
-                if poster_path and poster_path != self.local_poster_path \
-                        and os.path.exists(poster_path):
-                    os.unlink(poster_path)
-                self.progress.hide()
-                self.attach_btn.setEnabled(True)
+    def _on_attach_error(self, err):
+        self.progress.hide()
+        self.attach_btn.setEnabled(True)
+        self.status_label.setText(f"Error: {err}")
+        QMessageBox.critical(self, "Error", f"Attachment failed:\n{err}")
 
     def _batch_attach(self, targets, poster_path, metadata=None, to_mkv=False):
         self.progress.setRange(0, len(targets))
@@ -1392,26 +1432,7 @@ class MainWindow(QMainWindow):
                "Poster artwork will be kept.")
         if QMessageBox.question(self, "Remove Metadata", msg) != QMessageBox.StandardButton.Yes:
             return
-        try:
-            fail = self._batch_remove_metadata(videos)
-        except OPERATION_ERRORS as e:
-            QMessageBox.critical(self, "Error", str(e))
-            return
-        ok = len(videos) - len(fail)
-        if fail:
-            QMessageBox.warning(self, "Done", f"Removed metadata from {ok} files.\n{fail} failed.")
-        else:
-            QMessageBox.information(self, "Done", f"Metadata removed from all {ok} files!")
-        self.status_label.setText(f"Remove metadata: {ok} succeeded, {len(fail)} failed")
-
-    def _batch_remove_metadata(self, videos):
-        fail = []
-        for v in videos:
-            try:
-                attacher.remove_metadata(v)
-            except OPERATION_ERRORS as e:
-                fail.append(f"{v}\n  {e}")
-        return fail
+        self._start_metadata_worker(videos, "remove")
 
     def _scrape_metadata(self):
         videos = self._active_targets()
@@ -1422,38 +1443,63 @@ class MainWindow(QMainWindow):
                "Poster artwork will be kept.")
         if QMessageBox.question(self, "Scrape Metadata", msg) != QMessageBox.StandardButton.Yes:
             return
+        self._start_metadata_worker(videos, "scrape")
 
+    def _start_metadata_worker(self, videos, mode):
         self.progress.show()
         self.progress.setRange(0, len(videos))
         self.progress.setValue(0)
+        self.remove_meta_btn.setEnabled(False)
         self.scrape_meta_btn.setEnabled(False)
-        self.status_label.setText("Scraping metadata...")
-        try:
-            fail = self._batch_scrape_metadata(videos)
-        except OPERATION_ERRORS as e:
-            QMessageBox.critical(self, "Error", str(e))
-            return
-        finally:
-            self.progress.hide()
-            self.scrape_meta_btn.setEnabled(True)
-        ok = len(videos) - len(fail)
-        if fail:
-            QMessageBox.warning(self, "Done", f"Metadata written to {ok} files.\n{fail} failed.")
-        else:
-            QMessageBox.information(self, "Done", f"Metadata written to all {ok} files!")
-        self.status_label.setText(f"Scrape metadata: {ok} succeeded, {len(fail)} failed")
+        self.status_label.setText(
+            "Removing metadata..." if mode == "remove" else "Scraping metadata..."
+        )
+        self._metadata_worker = MetadataWorker(videos, mode, self.current_media)
+        self._metadata_worker.progress.connect(self._on_metadata_progress)
+        self._metadata_worker.finished.connect(
+            lambda fail: self._on_metadata_done(mode, len(videos), fail)
+        )
+        self._metadata_worker.error.connect(self._on_metadata_error)
+        self._track_worker(self._metadata_worker)
+        self._metadata_worker.start()
 
-    def _batch_scrape_metadata(self, videos):
-        fail = []
-        for i, v in enumerate(videos):
-            self.progress.setValue(i + 1)
-            self.status_label.setText(f"Scraping {i + 1}/{len(videos)}: {Path(v).name}")
-            try:
-                metadata = tmdb.details_for_path(v, self.current_media)
-                attacher.write_metadata(v, metadata)
-            except OPERATION_ERRORS as e:
-                fail.append(f"{Path(v).name}: {e}")
-        return fail
+    def _on_metadata_progress(self, current, total, filename):
+        self.progress.setValue(current)
+        self.status_label.setText(f"{current}/{total}: {filename}")
+
+    def _on_metadata_error(self, err):
+        self.progress.hide()
+        self.remove_meta_btn.setEnabled(True)
+        self.scrape_meta_btn.setEnabled(True)
+        self.status_label.setText(f"Error: {err}")
+        QMessageBox.critical(self, "Error", str(err))
+
+    def _on_metadata_done(self, mode, total, fail):
+        self.progress.hide()
+        self.remove_meta_btn.setEnabled(True)
+        self.scrape_meta_btn.setEnabled(True)
+        ok = total - len(fail)
+        detail = ("\n\n" + "\n".join(fail[:10])) if fail else ""
+        if mode == "remove":
+            if fail:
+                QMessageBox.warning(
+                    self, "Done",
+                    f"Removed metadata from {ok} files.\n{len(fail)} failed.{detail}")
+            else:
+                QMessageBox.information(
+                    self, "Done", f"Metadata removed from all {ok} files!")
+            self.status_label.setText(
+                f"Remove metadata: {ok} succeeded, {len(fail)} failed")
+        else:
+            if fail:
+                QMessageBox.warning(
+                    self, "Done",
+                    f"Metadata written to {ok} files.\n{len(fail)} failed.{detail}")
+            else:
+                QMessageBox.information(
+                    self, "Done", f"Metadata written to all {ok} files!")
+            self.status_label.setText(
+                f"Scrape metadata: {ok} succeeded, {len(fail)} failed")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():

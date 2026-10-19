@@ -618,6 +618,16 @@ class PosterTuiApp(App):
         return "symbols"
 
     def _preview_native(self, path: str, info: str = ""):
+        try:
+            self._draw_preview(path, info)
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+            self._update_selection_status()
+
+    def _draw_preview(self, path: str, info: str):
         if not shutil.which("chafa"):
             self.query_one("#status").update("Install chafa for preview")
             return
@@ -654,7 +664,6 @@ class PosterTuiApp(App):
             print("Warning: chafa exited unexpectedly during preview", file=sys.stderr)
         except OPERATION_ERRORS as e:
             print(f"Warning: preview failed: {e}", file=sys.stderr)
-        self._update_selection_status()
 
     @on(Input.Submitted, "#search_input")
     @on(Button.Pressed, "#search_btn")
@@ -757,10 +766,11 @@ class PosterTuiApp(App):
             with open(tmp, "wb") as f:
                 f.write(resp.content)
             os.chmod(tmp, 0o600)
+            # The temp file is deleted by _preview_native once it has drawn it,
+            # so the GUI thread never races the worker's cleanup.
             self.call_from_thread(self._preview_native, tmp, info)
         except (tmdb.TMDBError, requests.RequestException, OSError):
             print(f"Warning: poster preview failed: {url}", file=sys.stderr)
-        finally:
             if tmp:
                 try:
                     os.unlink(tmp)
@@ -775,10 +785,11 @@ class PosterTuiApp(App):
         if not self.selected_poster and not self.local_poster_path:
             self.query_one("#status").update("No poster selected")
             return
-        self._do_attach()
+        # Read widget state on the GUI thread; the worker only sees plain data.
+        self._do_attach(self._targets(), self.query_one("#meta_check").value)
 
     @work(thread=True)
-    def _do_attach(self):
+    def _do_attach(self, targets: list[str], scrape_metadata: bool):
         poster_path = None
         metadata = None
         to_mkv = bool(config.get("convert_to_mkv"))
@@ -792,7 +803,7 @@ class PosterTuiApp(App):
                 os.chmod(poster_path, 0o600)
                 tmdb.download_image(self.selected_poster["url"], poster_path)
 
-            if self.query_one("#meta_check").value and self.current_media:
+            if scrape_metadata and self.current_media:
                 self.call_from_thread(
                     lambda: self.query_one("#status").update("Scraping metadata...")
                 )
@@ -800,12 +811,12 @@ class PosterTuiApp(App):
                     self.current_media["id"], self.current_media["media_type"]
                 )
 
-            total = len(self._targets())
+            total = len(targets)
             ok = 0
             fail = 0
             first_error = None
             self.call_from_thread(self._set_progress, 0, total)
-            for i, path in enumerate(self._targets()):
+            for i, path in enumerate(targets):
                 self.call_from_thread(
                     lambda i=i, p=path: self.query_one("#status").update(
                         f"Attaching {i+1}/{total}: {Path(p).name}"
@@ -824,10 +835,7 @@ class PosterTuiApp(App):
                         first_error = f"{Path(path).name}: {e}"
 
             if conversions:
-                for old, new in conversions.items():
-                    if old in self.video_paths:
-                        self.video_paths[self.video_paths.index(old)] = new
-                self.call_from_thread(self._refresh_file_glyphs)
+                self.call_from_thread(self._apply_conversions, conversions)
 
             if fail == 0:
                 msg = f"Attached to {ok} file(s)"
@@ -845,6 +853,12 @@ class PosterTuiApp(App):
                     os.unlink(poster_path)
                 except OSError:
                     pass
+
+    def _apply_conversions(self, conversions: dict[str, str]):
+        for old, new in conversions.items():
+            if old in self.video_paths:
+                self.video_paths[self.video_paths.index(old)] = new
+        self._refresh_file_glyphs()
 
     @on(Button.Pressed, "#remove_btn")
     def on_remove(self):
@@ -937,10 +951,7 @@ class PosterTuiApp(App):
                 if first_error is None:
                     first_error = f"{Path(path).name}: {e}"
         if conversions:
-            for old, new in conversions.items():
-                if old in self.video_paths:
-                    self.video_paths[self.video_paths.index(old)] = new
-            self.call_from_thread(self._refresh_file_glyphs)
+            self.call_from_thread(self._apply_conversions, conversions)
         if fail == 0:
             msg = f"Converted {ok} file(s) to MKV"
         elif first_error:
@@ -1142,7 +1153,7 @@ class ReviewScreen(ModalScreen[tuple | None]):
 
     @on(Button.Pressed, "#review_attach")
     def on_attach(self):
-        entries = [self.resolved[i] for i in sorted(self._selected)]
+        entries = self._selected_entries()
         if not entries:
             self.notify("No groups selected", severity="warning")
             return
@@ -1151,11 +1162,17 @@ class ReviewScreen(ModalScreen[tuple | None]):
 
     @on(Button.Pressed, "#review_add")
     def on_add_to_list(self):
-        entries = [self.resolved[i] for i in sorted(self._selected)]
+        entries = self._selected_entries()
         if not entries:
             self.notify("No groups selected", severity="warning")
             return
         self.dismiss(("add", entries))
+
+    def _selected_entries(self) -> list:
+        entries = [self.resolved[i] for i in sorted(self._selected)]
+        if self.query_one("#skip_unmatched").value:
+            entries = [e for e in entries if e["status"] == "ok"]
+        return entries
 
     @on(Button.Pressed, "#review_cancel")
     def on_cancel(self):
@@ -1164,14 +1181,15 @@ class ReviewScreen(ModalScreen[tuple | None]):
 
 def main():
     missing = attacher.check_tools()
-    if not shutil.which("yazi"):
-        missing.append("yazi")
-    if not shutil.which("chafa"):
-        missing.append("chafa")
     if missing:
         print(f"Missing: {', '.join(missing)}")
         print(deps.hint(missing))
         sys.exit(1)
+    optional = [tool for tool in ("yazi", "chafa") if not shutil.which(tool)]
+    if optional:
+        print(f"Optional tools missing: {', '.join(optional)}")
+        print("File browsing needs yazi and image previews need chafa; "
+              "the TUI still runs without them.")
     app = PosterTuiApp()
     app.run()
 
