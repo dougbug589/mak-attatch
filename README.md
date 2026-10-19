@@ -415,6 +415,20 @@ mak-attatch/
 
 ## Changelog
 
+### v1.3.3 — 2026-10-19
+- **Fixed** MKV remux (`--to-mkv`): preserves all streams and no longer leaves a partial file on ffmpeg failure.
+- **Fixed** MP4/MOV poster attach: keeps existing metadata and writes transactionally.
+- **Fixed** MKV covers: replacing the poster keeps unrelated attachments.
+- **Fixed** Numeric titles (`1917`, `2012`), `Blade Runner 2049`, and `2001: A Space Odyssey` parse correctly.
+- **Fixed** Scanner groups same-title movies by year (e.g. `Dune` 1984 vs 2021).
+- **Fixed** TMDB search year handling for movies, TV, and multi-search.
+- **Fixed** CLI local-poster attach no longer needs an API key; `~` paths expand; batches resolve per file; `--dry-run` added.
+- **Fixed** GUI/TUI blocking work moved off the main thread; batch metadata, poster selection, preview cleanup, and “Skip unmatched” corrected.
+- **Fixed** `convert.sh` remux is transactional and reports failures.
+- **Fixed** Config validation, `VERSION`, and `MAK_ATTATCH_TMDB_API_KEY` override.
+- **Improved** `pip install .` packaging, venv-aware Makefile launchers, GUI/TUI + Windows CI, and README accuracy.
+- **Improved** Tests: 150 total.
+
 ### v1.3.2 — 2026-08-14
 - **Fixed** Fedora/EL yazi install: setup.sh now enables the `lihaohong/yazi` COPR before `dnf install` (via new `core/deps.py --yazi-copr`).
 - **Fixed** README "From Source": documents running via the venv Python (`.venv/bin/python ...`), since `./main.py`'s shebang resolves to system Python.

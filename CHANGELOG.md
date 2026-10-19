@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.3.3 — 2026-10-19
+
+### Fixed
+
+- **MKV remux (`--to-mkv`)**: streams are copied with `-map 0` instead of dropping subtitles and extra audio; output is published atomically, so a failed ffmpeg run no longer leaves a partial `.mkv`.
+- **MP4/MOV poster attach**: existing metadata is preserved (only `covr` is replaced) and poster updates are transactional.
+- **MKV cover replacement**: only `cover.*` attachments are removed; other attachments (fonts, subtitles) are kept.
+- **Numeric titles**: `1917.mkv` / `2012.mkv` are no longer mistaken for release years; `Blade Runner 2049` and `2001: A Space Odyssey` stay intact.
+- **Scanner grouping**: movies with the same title and different years (`Dune` 1984/2021, `The Thing` 1982/2011) are separate groups.
+- **TMDB search**: trailing years are split only when explicit, TV searches use `first_air_date_year`, and multi-search results are filtered by year.
+- **CLI**: a local poster (`-p`) no longer needs an API key; `~` paths are expanded; batches without `-s` resolve each file independently; `--dry-run` added to `attach`, `remove`, and `scan`.
+- **GUI/TUI**: poster download, metadata scraping/removal, and single-file attach run off the main thread; batch metadata no longer reuses the first file's match; poster-grid selection works; the TUI preview temp file no longer races its cleanup; “Skip unmatched” is honored.
+- **`convert.sh`**: transactional remux with ffmpeg failure checks, correct MIME types, and accurate add/remove reporting.
+- **Config**: version now matches the release, values are validated/clamped, and `MAK_ATTATCH_TMDB_API_KEY` overrides the on-disk key.
+
+### Improved
+
+- **Packaging**: `pyproject.toml` now has PEP 621 metadata, so `pip install .` works; Makefile launchers prefer an installed venv.
+- **CI**: added GUI/TUI (offscreen) and Windows smoke jobs.
+- **README**: corrected TUI shortcuts and test count, and added the required TMDB attribution.
+- **Tests**: 150 total.
+
 ## v1.3.2 — 2026-08-14
 
 ### Fixed

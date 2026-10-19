@@ -61,7 +61,7 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(config.get("tmdb_api_key"), "env-key-1234567890")
 
     def test_version_matches_package(self):
-        self.assertEqual(config.VERSION, "1.3.2")
+        self.assertEqual(config.VERSION, "1.3.3")
 
 
 if __name__ == "__main__":
