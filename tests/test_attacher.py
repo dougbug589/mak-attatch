@@ -875,3 +875,75 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+@unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"),
+                     "ffmpeg/mkvtoolnix required")
+class TestRemuxRegressions(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mak-attatch-remux-"))
+        self.img = self.tmp / "poster.jpg"
+        _make_image(self.img)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _probe(self, path):
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", str(path)],
+            capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        return json.loads(result.stdout)["streams"]
+
+    def test_remux_preserves_audio_and_converts_mov_text(self):
+        video = self.tmp / "multi.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "sine=frequency=440",
+             "-f", "lavfi", "-i", "sine=frequency=880",
+             "-f", "lavfi", "-i", "sine=frequency=1320",
+             "-t", "1", "-map", "0:v", "-map", "1:a", "-map", "2:a",
+             "-map", "3:a", "-c:v", "mpeg4", "-c:a", "aac", str(video)],
+            check=True, capture_output=True,
+        )
+        subs = self.tmp / "subs.srt"
+        subs.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+        with_subs = self.tmp / "with_subs.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video), "-i", str(subs),
+             "-map", "0", "-map", "1", "-c", "copy", "-c:s", "mov_text",
+             str(with_subs)],
+            check=True, capture_output=True,
+        )
+        os.chmod(with_subs, 0o644)
+
+        out = attacher.remux_to_mkv(str(with_subs))
+        streams = self._probe(out)
+        self.assertEqual(
+            sum(1 for s in streams if s.get("codec_type") == "audio"), 3
+        )
+        self.assertIn(
+            "subrip",
+            [s.get("codec_name") for s in streams if s.get("codec_type") == "subtitle"],
+        )
+        self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
+        self.assertEqual(list(self.tmp.glob(".remux-*")), [])
+
+    def test_remux_failure_leaves_no_partial_output(self):
+        video = self.tmp / "fail.mp4"
+        _make_video(video, "mpeg4")
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "ffmpeg":
+                return subprocess.CompletedProcess(cmd, 1, b"", b"forced failure")
+            return real_run(cmd, *args, **kwargs)
+
+        with patch("core.attacher.subprocess.run", side_effect=fake_run):
+            with self.assertRaises(RuntimeError):
+                attacher.remux_to_mkv(str(video))
+        self.assertFalse(video.with_suffix(".mkv").exists())
+        self.assertEqual(list(self.tmp.glob(".remux-*")), [])

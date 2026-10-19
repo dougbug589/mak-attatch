@@ -1,5 +1,7 @@
+import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -67,13 +69,13 @@ def _secure_temp(suffix: str) -> str:
     return path
 
 
-def _sibling_temp(video_path: str, suffix: str) -> str:
+def _sibling_temp(video_path: str, suffix: str, prefix: str = "tmp") -> str:
     """Random temp file in the video's own directory (same filesystem)."""
-    return _secure_temp_in_dir(os.path.dirname(video_path), suffix)
+    return _secure_temp_in_dir(os.path.dirname(video_path), suffix, prefix)
 
 
-def _secure_temp_in_dir(directory: str, suffix: str) -> str:
-    fd, path = tempfile.mkstemp(dir=directory, suffix=suffix)
+def _secure_temp_in_dir(directory: str, suffix: str, prefix: str = "tmp") -> str:
+    fd, path = tempfile.mkstemp(dir=directory, suffix=suffix, prefix=prefix)
     os.close(fd)
     os.chmod(path, 0o600)
     return path
@@ -280,19 +282,139 @@ def remove_metadata(video_path: str):
         raise RuntimeError("Metadata removal is only supported for MKV and MP4 files")
 
 
-def remux_to_mkv(video_path: str) -> str:
+# Subtitle codecs Matroska stores as-is, and ones that must be converted.
+# Anything else is dropped with a warning instead of failing the whole remux.
+_MKV_COPY_SUBS = frozenset({
+    "subrip", "ass", "ssa", "webvtt",
+    "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle",
+})
+_MKV_CONVERT_SUBS = {"mov_text": "srt"}  # source codec -> ffmpeg encoder
+
+
+def _probe_streams(path: str) -> list[dict]:
+    result = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", path],
+        capture_output=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            result.stderr.decode(errors="ignore")[-300:] or "ffprobe failed"
+        )
+    try:
+        return json.loads(result.stdout).get("streams", [])
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Invalid ffprobe output: {e}") from e
+
+
+def _plan_mkv_streams(
+    streams: list[dict], drop_attached_pic: bool = False
+) -> tuple[list[tuple[int, str | None]], list[str]]:
+    """Decide what happens to each source stream.
+
+    Returns (keep, dropped): keep is [(source_index, encoder_or_None)] in
+    source order (None = stream copy); dropped is human-readable strings.
+    Pure function, so it can be unit-tested without ffmpeg.
+    """
+    keep: list[tuple[int, str | None]] = []
+    dropped: list[str] = []
+    for s in streams:
+        idx = s["index"]
+        kind = s.get("codec_type")
+        codec = s.get("codec_name", "unknown")
+        if kind == "video":
+            # In full_attach the MP4/MOV cover is reattached to the MKV after
+            # remuxing, so carrying the attached_pic stream would duplicate it.
+            if drop_attached_pic and s.get("disposition", {}).get("attached_pic"):
+                dropped.append(f"cover image #{idx} ({codec}); reattached separately")
+            else:
+                keep.append((idx, None))
+        elif kind in ("audio", "attachment"):
+            keep.append((idx, None))
+        elif kind == "subtitle":
+            if codec in _MKV_COPY_SUBS:
+                keep.append((idx, None))
+            elif codec in _MKV_CONVERT_SUBS:
+                keep.append((idx, _MKV_CONVERT_SUBS[codec]))
+            else:
+                dropped.append(f"subtitle #{idx} ({codec})")
+        else:
+            dropped.append(f"{kind or 'unknown'} #{idx} ({codec})")
+    return keep, dropped
+
+
+def _publish_no_clobber(tmp: str, out: str) -> None:
+    """Move tmp to out, failing if out already exists.
+
+    ``os.replace`` would silently overwrite an existing file. Linking first
+    closes the check-then-replace race: ``os.link`` fails atomically if the
+    destination exists.
+    """
+    exists_msg = f"Target already exists, refusing to overwrite: {out}"
+    try:
+        os.link(tmp, out)  # atomic, and fails if `out` exists
+    except FileExistsError:
+        raise RuntimeError(exists_msg) from None
+    except OSError:
+        # Filesystem without hard links (FAT/exFAT, some network mounts).
+        if os.path.lexists(out):
+            raise RuntimeError(exists_msg) from None
+        os.replace(tmp, out)
+        return
+    os.unlink(tmp)
+
+
+def remux_to_mkv(video_path: str, drop_attached_pic: bool = False) -> str:
     p = _validate_path(video_path, VIDEO_EXTS)
     if p.suffix.lower() in MKV_COMPAT_EXTS:
-        return video_path
+        return video_path  # unchanged: callers compare this with their input
 
     out = str(p.with_suffix(".mkv"))
     if os.path.lexists(out):
         raise RuntimeError(f"Target already exists, refusing to overwrite: {out}")
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(p), "-codec", "copy", out],
-        check=True, capture_output=True, timeout=600,
-    )
-    return out
+
+    src_stat = p.stat()
+    if shutil.disk_usage(p.parent).free < src_stat.st_size * 1.05:
+        raise RuntimeError(f"Not enough free space in {p.parent} to remux {p.name}")
+
+    streams = _probe_streams(str(p))
+    if not any(s.get("codec_type") in ("video", "audio") for s in streams):
+        raise RuntimeError(f"No audio or video streams found in {p.name}")
+    keep, dropped = _plan_mkv_streams(streams, drop_attached_pic=drop_attached_pic)
+    if dropped:
+        print(
+            "Warning: not carried into the MKV: " + "; ".join(dropped),
+            file=sys.stderr,
+        )
+
+    # Hidden, non-.mkv name so library scanners never index a half-written file.
+    tmp = _sibling_temp(str(p), ".mkv.part", prefix=".remux-")
+    try:
+        cmd = ["ffmpeg", "-y", "-nostdin", "-i", str(p)]
+        for idx, _ in keep:
+            cmd += ["-map", f"0:{idx}"]
+        cmd += ["-map_metadata", "0", "-map_chapters", "0", "-c", "copy"]
+        for out_idx, (_, encoder) in enumerate(keep):
+            if encoder:
+                cmd += [f"-c:{out_idx}", encoder]
+        cmd += ["-f", "matroska", tmp]
+
+        # Pure stream copy is I/O bound; allow >= 5 MB/s before giving up.
+        timeout = max(600, int(src_stat.st_size / (5 * 1024 * 1024)))
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.decode(errors="ignore")[-500:])
+
+        if len(_probe_streams(tmp)) != len(keep):
+            raise RuntimeError("Remux verification failed: stream count mismatch")
+
+        os.chmod(tmp, stat.S_IMODE(src_stat.st_mode))
+        _publish_no_clobber(tmp, out)
+        return out
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def attach_poster_mkv(video_path: str, poster_path: str):
@@ -427,7 +549,9 @@ def full_attach(video_path: str, poster_path: str, metadata: dict = None,
 
     if to_mkv:
         attach_poster_mp4(video_path, poster_path)
-        mkv = remux_to_mkv(video_path)
+        mkv = remux_to_mkv(
+            video_path, drop_attached_pic=(ext in MP4_COMPAT_EXTS)
+        )
         attach_poster_mkv(mkv, poster_path)
         if metadata:
             write_metadata_mkv(mkv, metadata)
