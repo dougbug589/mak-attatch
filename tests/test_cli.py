@@ -134,9 +134,41 @@ class AttachTest(unittest.TestCase):
     def test_missing_api_key_fails_before_work(self):
         self.config.get.return_value = ""
         with mock.patch("cli.attacher.check_tools") as check_tools:
-            code = _run(["attach", "-f", "m.mkv", "-p", "p.jpg"])
+            code = _run(["attach", "-f", "m.mkv", "-s", "Boom"])
         self.assertEqual(code, 1)
         check_tools.assert_not_called()
+
+    @mock.patch("cli.attacher.full_attach")
+    def test_local_poster_needs_no_api_key(self, full_attach):
+        self.config.get.return_value = ""
+        full_attach.return_value = "movie.mkv"
+        code = _run(["attach", "-f", "movie.mkv", "-p", "poster.jpg"])
+        self.assertEqual(code, 0)
+        full_attach.assert_called_once_with(
+            "movie.mkv", "poster.jpg", metadata=None, to_mkv=False
+        )
+
+    @mock.patch("cli.attacher.full_attach")
+    def test_attach_dry_run_does_not_touch_files(self, full_attach):
+        code = _run(["attach", "-f", "movie.mkv", "-p", "poster.jpg", "--dry-run"])
+        self.assertEqual(code, 0)
+        full_attach.assert_not_called()
+
+    @mock.patch("cli.attacher.full_attach")
+    @mock.patch("cli.tmdb.download_image")
+    @mock.patch("cli.tmdb.get_posters")
+    @mock.patch("cli.tmdb.search")
+    def test_batch_without_source_resolves_each_file(self, search, get_posters,
+                                                     download_image, full_attach):
+        search.side_effect = lambda q, media_type: [
+            {"id": 1, "title": q, "year": "", "media_type": "movie"},
+        ]
+        get_posters.return_value = [{"url": "https://img/x.jpg"}]
+        full_attach.return_value = "movie.mkv"
+        code = _run(["attach", "-f", "first.mkv", "-f", "second.mkv"])
+        self.assertEqual(code, 0)
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(full_attach.call_count, 2)
 
     @mock.patch("cli.attacher.check_tools", return_value=["ffmpeg"])
     def test_missing_tools_fails(self, check_tools):
@@ -230,6 +262,36 @@ class ScanTest(unittest.TestCase):
 
     def test_scan_nonexistent_directory(self):
         self.assertEqual(_run(["scan", "/no/such/dir"]), 1)
+
+    @mock.patch("cli.scanner.iter_video_files", return_value=[])
+    def test_scan_expands_tilde(self, iter_files):
+        home = tempfile.mkdtemp(prefix="mak-home-")
+        self._tmpdirs.append(home)
+        sub = os.path.join(home, "Videos")
+        os.mkdir(sub)
+        with mock.patch.dict(os.environ, {"HOME": home}):
+            code = _run(["scan", "~/Videos"])
+        self.assertEqual(code, 0)
+        iter_files.assert_called_once_with(sub)
+
+    @mock.patch("cli.autoattach.attach_groups")
+    @mock.patch("cli.autoattach.resolve_groups")
+    @mock.patch("cli.scanner.classify")
+    @mock.patch("cli.scanner.iter_video_files")
+    def test_scan_dry_run_does_not_attach(self, iter_files, classify, resolve,
+                                          attach):
+        iter_files.return_value = ["/v/a.mkv"]
+        classify.return_value = ["group-a"]
+        group = mock.MagicMock()
+        group.title = "A"
+        resolve.return_value = [{
+            "group": group, "status": "ok",
+            "match": {"id": 1, "title": "A", "year": "2020", "media_type": "movie"},
+        }]
+
+        code = _run(["scan", self._scan_dir(), "--dry-run"])
+        self.assertEqual(code, 0)
+        attach.assert_not_called()
 
 
 if __name__ == "__main__":
