@@ -190,7 +190,8 @@ def write_metadata_mkv(video_path: str, metadata: dict):
         cmd = ["mkvpropedit", video_path]
         if metadata.get("title"):
             cmd += ["--edit", "info", "--set", f"title={metadata['title']}"]
-        cmd += ["--tags", f"all:{tags_path}"]
+        # Global tags only: `all:` also replaces track-level tags/statistics.
+        cmd += ["--tags", f"global:{tags_path}"]
         subprocess.run(cmd, check=True, capture_output=True, timeout=60)
     finally:
         if tags_path:
@@ -306,6 +307,38 @@ def _probe_streams(path: str) -> list[dict]:
         return json.loads(result.stdout).get("streams", [])
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Invalid ffprobe output: {e}") from e
+
+
+def _mkv_attachment_names(video_path: str) -> list[str]:
+    """Return attachment names via mkvmerge, falling back to ffprobe tags."""
+    try:
+        result = subprocess.run(
+            ["mkvmerge", "-J", video_path],
+            capture_output=True, timeout=60,
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            return [
+                a["file_name"] for a in data.get("attachments", [])
+                if a.get("file_name")
+            ]
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    names = []
+    for stream in _probe_streams(video_path):
+        tags = {k.lower(): v for k, v in stream.get("tags", {}).items()}
+        name = tags.get("filename")
+        if name:
+            names.append(name)
+    return names
+
+
+def _cover_attachment_names(video_path: str) -> list[str]:
+    return [
+        name for name in _mkv_attachment_names(video_path)
+        if Path(name).name.lower().startswith("cover.")
+    ]
 
 
 def _plan_mkv_streams(
@@ -435,20 +468,23 @@ def remux_to_mkv(video_path: str, drop_attached_pic: bool = False) -> str:
 
 
 def attach_poster_mkv(video_path: str, poster_path: str):
-    _validate_path(video_path, VIDEO_EXTS)
-    _validate_path(poster_path, IMAGE_EXTS)
-    remove_poster(video_path)
-    mime = _get_mime(poster_path)
+    p = _validate_path(video_path, VIDEO_EXTS)
+    poster = _validate_path(poster_path, IMAGE_EXTS)
+    mime = _get_mime(str(poster))
     name = f"cover{_image_ext_for_mime(mime)}"
-    subprocess.run(
-        [
-            "mkvpropedit", video_path,
-            "--attachment-mime-type", mime,
-            "--attachment-name", name,
-            "--add-attachment", poster_path,
-        ],
-        check=True, capture_output=True, timeout=60,
-    )
+
+    # Remove only covers this app created, then add the new one in the same
+    # mkvpropedit invocation. mkvpropedit does not write any changes if an
+    # action fails, so a failed add leaves the old cover in place.
+    cmd = ["mkvpropedit", str(p)]
+    for old in _cover_attachment_names(str(p)):
+        cmd += ["--delete-attachment", f"name:{old}"]
+    cmd += [
+        "--attachment-mime-type", mime,
+        "--attachment-name", name,
+        "--add-attachment", str(poster),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, timeout=60)
 
 
 def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
@@ -534,16 +570,17 @@ def remove_poster(video_path: str):
     p = _validate_path(video_path, VIDEO_EXTS)
     ext = p.suffix.lower()
     if ext in MKV_COMPAT_EXTS:
-        cmd = ["mkvpropedit", video_path]
-        for mt in sorted(set(MIME_MAP.values())):
-            cmd += ["--delete-attachment", f"mime-type:{mt}"]
+        names = _cover_attachment_names(str(p))
+        if not names:
+            return
+        cmd = ["mkvpropedit", str(p)]
+        for name in names:
+            cmd += ["--delete-attachment", f"name:{name}"]
         result = subprocess.run(cmd, capture_output=True, timeout=60)
         if result.returncode != 0:
-            stderr = result.stderr.decode(errors='ignore').lower()
-            if stderr and "no attachment matched" not in stderr:
-                raise RuntimeError(
-                    f"Failed to remove poster: {result.stderr.decode(errors='ignore')}"
-                )
+            raise RuntimeError(
+                f"Failed to remove poster: {result.stderr.decode(errors='ignore')}"
+            )
     elif ext in MP4_COMPAT_EXTS:
         video_path = str(p)
         pic_idx = _find_attached_pic(video_path)
@@ -582,7 +619,11 @@ def full_attach(video_path: str, poster_path: str, metadata: dict = None,
         return video_path
 
     if to_mkv:
-        attach_poster_mp4(video_path, poster_path)
+        # Attaching to the MP4 first preserves the existing behaviour of
+        # keeping a poster on both files. Non-MP4 sources must be remuxed
+        # first: attach_poster_mp4 cannot operate on AVI/WebM/FLV inputs.
+        if ext in MP4_COMPAT_EXTS:
+            attach_poster_mp4(video_path, poster_path)
         mkv = remux_to_mkv(
             video_path, drop_attached_pic=(ext in MP4_COMPAT_EXTS)
         )

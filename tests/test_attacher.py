@@ -979,6 +979,24 @@ class TestRemuxRegressions(unittest.TestCase):
         attacher.attach_poster_mp4(str(mov), str(self.img))
         self.assertEqual(brand(mov), "qt")
 
+    def test_mkv_remove_keeps_backdrop_and_other_covers(self):
+        video = self.tmp / "art.mkv"
+        _make_video(video, "mpeg4")
+        backdrop = self.tmp / "backdrop.jpg"
+        _make_image(backdrop)
+        subprocess.run(
+            ["mkvpropedit", str(video),
+             "--attachment-mime-type", "image/jpeg",
+             "--attachment-name", "backdrop.jpg",
+             "--add-attachment", str(backdrop)],
+            check=True, capture_output=True,
+        )
+        attacher.attach_poster_mkv(str(video), str(self.img))
+        attacher.remove_poster(str(video))
+        names = attacher._mkv_attachment_names(str(video))
+        self.assertIn("backdrop.jpg", names)
+        self.assertFalse(any(n.startswith("cover.") for n in names))
+
     def test_mp4_accepts_webp_and_multi_video(self):
         webp = self.tmp / "poster.webp"
         _make_image(webp)
@@ -998,3 +1016,16 @@ class TestRemuxRegressions(unittest.TestCase):
         )
         attacher.attach_poster_mp4(str(multi), str(self.img))
         self.assertEqual(_pic_count(str(multi)), 1)
+
+    def test_avi_to_mkv_option_works(self):
+        video = self.tmp / "source.avi"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "sine=frequency=440", "-t", "1",
+             "-c:v", "mpeg4", "-c:a", "mp3", str(video)],
+            check=True, capture_output=True,
+        )
+        out = attacher.full_attach(str(video), str(self.img), to_mkv=True)
+        self.assertTrue(out.endswith(".mkv"))
+        self.assertTrue(Path(out).exists())
+        self.assertEqual(_pic_count(out), 1)
