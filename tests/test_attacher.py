@@ -875,3 +875,157 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+@unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"),
+                     "ffmpeg/mkvtoolnix required")
+class TestRemuxRegressions(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="mak-attatch-remux-"))
+        self.img = self.tmp / "poster.jpg"
+        _make_image(self.img)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _probe(self, path):
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", str(path)],
+            capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        return json.loads(result.stdout)["streams"]
+
+    def test_remux_preserves_audio_and_converts_mov_text(self):
+        video = self.tmp / "multi.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "sine=frequency=440",
+             "-f", "lavfi", "-i", "sine=frequency=880",
+             "-f", "lavfi", "-i", "sine=frequency=1320",
+             "-t", "1", "-map", "0:v", "-map", "1:a", "-map", "2:a",
+             "-map", "3:a", "-c:v", "mpeg4", "-c:a", "aac", str(video)],
+            check=True, capture_output=True,
+        )
+        subs = self.tmp / "subs.srt"
+        subs.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+        with_subs = self.tmp / "with_subs.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video), "-i", str(subs),
+             "-map", "0", "-map", "1", "-c", "copy", "-c:s", "mov_text",
+             str(with_subs)],
+            check=True, capture_output=True,
+        )
+        os.chmod(with_subs, 0o644)
+
+        out = attacher.remux_to_mkv(str(with_subs))
+        streams = self._probe(out)
+        self.assertEqual(
+            sum(1 for s in streams if s.get("codec_type") == "audio"), 3
+        )
+        self.assertIn(
+            "subrip",
+            [s.get("codec_name") for s in streams if s.get("codec_type") == "subtitle"],
+        )
+        self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
+        self.assertEqual(list(self.tmp.glob(".remux-*")), [])
+
+    def test_remux_failure_leaves_no_partial_output(self):
+        video = self.tmp / "fail.mp4"
+        _make_video(video, "mpeg4")
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "ffmpeg":
+                return subprocess.CompletedProcess(cmd, 1, b"", b"forced failure")
+            return real_run(cmd, *args, **kwargs)
+
+        with patch("core.attacher.subprocess.run", side_effect=fake_run):
+            with self.assertRaises(RuntimeError):
+                attacher.remux_to_mkv(str(video))
+        self.assertFalse(video.with_suffix(".mkv").exists())
+        self.assertEqual(list(self.tmp.glob(".remux-*")), [])
+
+    def test_mp4_operations_preserve_mode_symlink_and_brand(self):
+        video = self.tmp / "plain.mp4"
+        _make_video(video, "mpeg4")
+        os.chmod(video, 0o644)
+        attacher.attach_poster_mp4(str(video), str(self.img))
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+        attacher.remove_poster(str(video))
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+
+        link = self.tmp / "link.mp4"
+        link.symlink_to(video)
+        attacher.attach_poster_mp4(str(link), str(self.img))
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+
+        mov = self.tmp / "clip.mov"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-t", "1", "-c:v", "mpeg4", "-f", "mov", str(mov)],
+            check=True, capture_output=True,
+        )
+        def brand(p):
+            return subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format_tags=major_brand",
+                 "-of", "default=nw=1:nk=1", str(p)],
+                capture_output=True, text=True,
+            ).stdout.strip()
+        self.assertEqual(brand(mov), "qt")
+        attacher.attach_poster_mp4(str(mov), str(self.img))
+        self.assertEqual(brand(mov), "qt")
+
+    def test_mkv_remove_keeps_backdrop_and_other_covers(self):
+        video = self.tmp / "art.mkv"
+        _make_video(video, "mpeg4")
+        backdrop = self.tmp / "backdrop.jpg"
+        _make_image(backdrop)
+        subprocess.run(
+            ["mkvpropedit", str(video),
+             "--attachment-mime-type", "image/jpeg",
+             "--attachment-name", "backdrop.jpg",
+             "--add-attachment", str(backdrop)],
+            check=True, capture_output=True,
+        )
+        attacher.attach_poster_mkv(str(video), str(self.img))
+        attacher.remove_poster(str(video))
+        names = attacher._mkv_attachment_names(str(video))
+        self.assertIn("backdrop.jpg", names)
+        self.assertFalse(any(n.startswith("cover.") for n in names))
+
+    def test_mp4_accepts_webp_and_multi_video(self):
+        webp = self.tmp / "poster.webp"
+        _make_image(webp)
+        video = self.tmp / "webp.mp4"
+        _make_video(video, "mpeg4")
+        attacher.attach_poster_mp4(str(video), str(webp))
+        self.assertEqual(_pic_count(str(video)), 1)
+
+        multi = self.tmp / "multi.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=10",
+             "-t", "1", "-map", "0:v", "-map", "1:v", "-c:v", "mpeg4",
+             str(multi)],
+            check=True, capture_output=True,
+        )
+        attacher.attach_poster_mp4(str(multi), str(self.img))
+        self.assertEqual(_pic_count(str(multi)), 1)
+
+    def test_avi_to_mkv_option_works(self):
+        video = self.tmp / "source.avi"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "sine=frequency=440", "-t", "1",
+             "-c:v", "mpeg4", "-c:a", "mp3", str(video)],
+            check=True, capture_output=True,
+        )
+        out = attacher.full_attach(str(video), str(self.img), to_mkv=True)
+        self.assertTrue(out.endswith(".mkv"))
+        self.assertTrue(Path(out).exists())
+        self.assertEqual(_pic_count(out), 1)
