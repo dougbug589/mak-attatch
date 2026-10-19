@@ -337,6 +337,26 @@ class TestParser(unittest.TestCase):
         self.assertEqual(p["season"], 1)
         self.assertEqual(p["episode"], 3)
 
+    def test_numeric_title_is_not_a_year(self):
+        p = parser.parse_filename("/v/1917.mkv")
+        self.assertEqual(p["title"], "1917")
+        self.assertEqual(p["year"], "")
+
+    def test_numeric_title_with_release_year(self):
+        p = parser.parse_filename("/v/1917.2019.1080p.mkv")
+        self.assertEqual(p["title"], "1917")
+        self.assertEqual(p["year"], "2019")
+
+    def test_trailing_number_stays_in_title(self):
+        p = parser.parse_filename("/v/Blade Runner 2049.mkv")
+        self.assertEqual(p["title"], "Blade Runner 2049")
+        self.assertEqual(p["year"], "")
+
+    def test_leading_year_title_keeps_number(self):
+        p = parser.parse_filename("/v/2001 A Space Odyssey.mkv")
+        self.assertEqual(p["title"], "2001 A Space Odyssey")
+        self.assertEqual(p["year"], "")
+
 
 try:
     from ui.main_window import BatchWorker, ConvertWorker, MainWindow

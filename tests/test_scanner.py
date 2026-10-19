@@ -46,11 +46,11 @@ class ScanTreeTest(unittest.TestCase):
         by_key = {g.key: g for g in groups}
         self.assertIn("show|series|1", by_key)
         self.assertIn("show|series|2", by_key)
-        self.assertIn("movie|movie|0", by_key)
+        self.assertIn("movie|movie|2020", by_key)
         self.assertEqual(len(by_key["show|series|1"].files), 2)
         self.assertEqual(by_key["show|series|1"].season, 1)
         self.assertEqual(by_key["show|series|2"].season, 2)
-        self.assertEqual(by_key["movie|movie|0"].year, "2020")
+        self.assertEqual(by_key["movie|movie|2020"].year, "2020")
 
     def test_classify_folder_fallback_episode_markers(self):
         self._touch("Series Two Season 3/EP01.mkv")
@@ -58,8 +58,8 @@ class ScanTreeTest(unittest.TestCase):
         groups = scanner.classify(scanner.iter_video_files(self.root))
         by_key = {g.key: g for g in groups}
         self.assertIn("show|series two|3", by_key)
-        self.assertIn("movie|a real movie|0", by_key)
-        self.assertEqual(by_key["movie|a real movie|0"].year, "2019")
+        self.assertIn("movie|a real movie|2019", by_key)
+        self.assertEqual(by_key["movie|a real movie|2019"].year, "2019")
 
     def test_classify_series_without_season_number(self):
         self._touch("Test Show S01E01.mkv")
@@ -75,7 +75,19 @@ class ScanTreeTest(unittest.TestCase):
         self._touch("A Show S01E01.mkv")
         groups = scanner.classify(scanner.iter_video_files(self.root))
         self.assertEqual([g.key for g in groups],
-                         ["show|a show|1", "movie|b movie|0"])
+                         ["show|a show|1", "movie|b movie|2018"])
+
+    def test_classify_separates_same_title_different_years(self):
+        self._touch("The Thing (1982).mkv")
+        self._touch("The Thing (2011).mkv")
+        self._touch("Dune (1984)/Dune (1984).mkv")
+        self._touch("Dune (2021)/Dune (2021).mkv")
+        groups = scanner.classify(scanner.iter_video_files(self.root))
+        self.assertEqual(
+            sorted(g.key for g in groups),
+            ["movie|dune|1984", "movie|dune|2021",
+             "movie|the thing|1982", "movie|the thing|2011"])
+        self.assertEqual([len(g.files) for g in groups], [1, 1, 1, 1])
 
 
 @unittest.skipUnless(
