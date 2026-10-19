@@ -89,8 +89,12 @@ def classify(files: list[str]) -> list[MediaGroup]:
     order: list[str] = []
 
     def get_group(kind: str, title: str, season: int | None, year: str) -> MediaGroup:
-        season_key = season if season is not None else 0
-        key = f"{kind}|{title.strip().lower()}|{season_key}"
+        if kind == "movie":
+            # Year disambiguates remakes: The Thing (1982) vs The Thing (2011).
+            key = f"{kind}|{title.strip().lower()}|{year or ''}"
+        else:
+            season_key = season if season is not None else 0
+            key = f"{kind}|{title.strip().lower()}|{season_key}"
         group = groups.get(key)
         if group is None:
             group = MediaGroup(kind=kind, title=title, year=year, season=season, key=key)

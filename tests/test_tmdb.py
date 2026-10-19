@@ -69,6 +69,55 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(params.get("year"), "1972")
         self.assertIn("search/movie", url)
 
+    def test_numeric_title_is_not_stripped(self):
+        with mock.patch("core.tmdb._fetch") as fetch, \
+             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+            fetch.return_value = _FakeResp({"results": []})
+            tmdb.search("1917", "movie")
+        params = fetch.call_args.kwargs["params"]
+        self.assertEqual(params["query"], "1917")
+        self.assertNotIn("year", params)
+
+    def test_trailing_number_stays_in_title(self):
+        with mock.patch("core.tmdb._fetch") as fetch, \
+             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+            fetch.return_value = _FakeResp({"results": []})
+            tmdb.search("Blade Runner 2049", "movie")
+        params = fetch.call_args.kwargs["params"]
+        self.assertEqual(params["query"], "Blade Runner 2049")
+        self.assertNotIn("year", params)
+
+    def test_numeric_title_with_parenthesised_year(self):
+        with mock.patch("core.tmdb._fetch") as fetch, \
+             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+            fetch.return_value = _FakeResp({"results": []})
+            tmdb.search("1917 (2019)", "movie")
+        params = fetch.call_args.kwargs["params"]
+        self.assertEqual(params["query"], "1917")
+        self.assertEqual(params.get("year"), "2019")
+
+    def test_tv_search_uses_first_air_date_year(self):
+        with mock.patch("core.tmdb._fetch") as fetch, \
+             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+            fetch.return_value = _FakeResp({"results": []})
+            tmdb.search("Breaking Bad (2008)", "tv")
+        params = fetch.call_args.kwargs["params"]
+        self.assertEqual(params["query"], "Breaking Bad")
+        self.assertEqual(params.get("first_air_date_year"), "2008")
+        self.assertNotIn("year", params)
+
+    def test_multi_search_narrows_by_year(self):
+        with mock.patch("core.tmdb._fetch") as fetch, \
+             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+            fetch.return_value = _FakeResp({
+                "results": [
+                    _result(1, "Dune", "1984-12-14", media_type="movie"),
+                    _result(2, "Dune", "2021-10-22", media_type="movie"),
+                ],
+            })
+            results = tmdb.search("Dune (2021)", "multi")
+        self.assertEqual([r["year"] for r in results], ["2021"])
+
 
 class FetchRedirectTest(unittest.TestCase):
     def test_fetch_follows_302_redirect(self):

@@ -71,6 +71,35 @@ def _validate_url(url: str):
         raise TMDBError("Blocked URL from untrusted host")
 
 
+def _plausible_release_year(year: str) -> bool:
+    if not year.isdigit():
+        return False
+    return 1888 <= int(year) <= time.localtime().tm_year + 2
+
+
+def _split_query_year(query: str) -> tuple[str, str]:
+    """Split a trailing year from a search query.
+
+    Only a year at the very end counts, so numeric titles such as ``1917``,
+    ``2012`` and ``Blade Runner 2049`` keep their full title. A future year
+    beyond the current release window is treated as part of the title.
+    """
+    import re
+
+    text = query.strip()
+    explicit = re.search(r"\((\d{4})\)\s*$", text)
+    if explicit:
+        title = text[:explicit.start()].strip()
+        if title and _plausible_release_year(explicit.group(1)):
+            return title, explicit.group(1)
+    trailing = re.search(r"(?<=\s)((?:19|20)\d{2})\s*$", text)
+    if trailing:
+        title = text[:trailing.start()].strip()
+        if title and _plausible_release_year(trailing.group(1)):
+            return title, trailing.group(1)
+    return text, ""
+
+
 def search(query: str, media_type: str = "multi") -> list[dict]:
     if not config.get("tmdb_api_key"):
         raise TMDBError("No API key set")
@@ -78,20 +107,16 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
     if media_type not in ("multi", "movie", "tv"):
         raise TMDBError("Invalid media type")
 
-    import re
-    year_match = re.search(r'\((\d{4})\)|\b(19|20)\d{2}\b', query)
-    year = ""
-    if year_match:
-        year = year_match.group(1) or year_match.group(0)
-        year = year.strip("() ")
-        query = re.sub(r'\(?\d{4}\)?|\b(19|20)\d{2}\b', '', query).strip()
-
+    query, year = _split_query_year(query)
     if not query:
         raise TMDBError("Empty search query")
 
     params = {"query": query}
     if year:
-        params["year"] = year
+        if media_type == "movie":
+            params["year"] = year
+        elif media_type == "tv":
+            params["first_air_date_year"] = year
     resp = _fetch(f"{BASE_URL}/search/{media_type}", params=params)
     results = resp.json().get("results", [])
 
@@ -108,6 +133,14 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
             "overview": r.get("overview", ""),
             "poster_path": r.get("poster_path"),
         })
+
+    if year and media_type == "multi":
+        # /search/multi does not accept a year parameter, so narrow locally
+        # when the caller provided one (e.g. Dune (1984) vs Dune (2021)).
+        year_filtered = [r for r in filtered if r["year"] == year]
+        if year_filtered:
+            filtered = year_filtered
+
     return filtered
 
 
