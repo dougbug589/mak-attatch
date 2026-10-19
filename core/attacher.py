@@ -219,12 +219,13 @@ def _mp4_metadata_flags(metadata: dict) -> list[str]:
 
 
 def write_metadata_mp4(video_path: str, metadata: dict):
-    _validate_path(video_path, VIDEO_EXTS)
-    tmp = _sibling_temp(video_path, ".meta_tmp.mp4")
+    p = _validate_path(video_path, VIDEO_EXTS)
+    video_path = str(p)
+    tmp = _sibling_temp(video_path, f".meta_tmp{p.suffix}")
     try:
         result = subprocess.run(
             [
-                "ffmpeg", "-y", "-i", video_path,
+                "ffmpeg", "-y", "-nostdin", "-i", video_path,
                 "-map", "0",
                 "-map_metadata", "-1",
                 *_mp4_metadata_flags(metadata),
@@ -235,7 +236,7 @@ def write_metadata_mp4(video_path: str, metadata: dict):
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-        os.replace(tmp, video_path)
+        _publish_preserving_metadata(tmp, video_path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -252,19 +253,20 @@ def write_metadata(video_path: str, metadata: dict):
 
 
 def remove_metadata(video_path: str):
-    _validate_path(video_path, VIDEO_EXTS)
-    ext = Path(video_path).suffix.lower()
+    p = _validate_path(video_path, VIDEO_EXTS)
+    video_path = str(p)
+    ext = p.suffix.lower()
     if ext in MKV_COMPAT_EXTS:
         subprocess.run(
             ["mkvpropedit", video_path, "--edit", "info", "--delete", "title", "--tags", "all:"],
             check=True, capture_output=True, timeout=60,
         )
     elif ext in MP4_COMPAT_EXTS:
-        tmp = _sibling_temp(video_path, ".meta_rm_tmp.mp4")
+        tmp = _sibling_temp(video_path, f".meta_rm_tmp{p.suffix}")
         try:
             result = subprocess.run(
                 [
-                    "ffmpeg", "-y", "-i", video_path,
+                    "ffmpeg", "-y", "-nostdin", "-i", video_path,
                     "-map", "0",
                     "-map_metadata", "-1",
                     "-c", "copy",
@@ -274,7 +276,7 @@ def remove_metadata(video_path: str):
             )
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-            os.replace(tmp, video_path)
+            _publish_preserving_metadata(tmp, video_path)
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
@@ -340,6 +342,21 @@ def _plan_mkv_streams(
         else:
             dropped.append(f"{kind or 'unknown'} #{idx} ({codec})")
     return keep, dropped
+
+
+def _publish_preserving_metadata(tmp: str, dest: str) -> None:
+    """Atomically replace dest while keeping its mode, timestamps and owner."""
+    st = os.stat(dest)
+    if hasattr(os, "chown"):
+        try:
+            os.chown(tmp, st.st_uid, st.st_gid)
+        except OSError:
+            pass
+    try:
+        shutil.copystat(dest, tmp)
+    except OSError:
+        os.chmod(tmp, stat.S_IMODE(st.st_mode))
+    os.replace(tmp, dest)
 
 
 def _publish_no_clobber(tmp: str, out: str) -> None:
@@ -435,18 +452,43 @@ def attach_poster_mkv(video_path: str, poster_path: str):
 
 
 def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
-    _validate_path(video_path, VIDEO_EXTS)
-    _validate_path(poster_path, IMAGE_EXTS)
-    remove_poster(video_path)
-    tmp = _sibling_temp(video_path, ".tmp.mp4")
+    p = _validate_path(video_path, VIDEO_EXTS)
+    poster = _validate_path(poster_path, IMAGE_EXTS)
+    video_path = str(p)
+
+    # Rebuild the file once: old cover out, new cover in. This avoids the
+    # previous remove-then-add sequence, so a failed ffmpeg run leaves the
+    # original file untouched.
+    pic_idx = _find_attached_pic(video_path)
+    video_count = sum(
+        1 for s in _probe_streams(video_path) if s.get("codec_type") == "video"
+    )
+    poster_index = video_count - (1 if pic_idx is not None else 0)
+
+    poster_codec = next(
+        (s.get("codec_name") for s in _probe_streams(str(poster))
+         if s.get("codec_type") == "video"),
+        "",
+    )
+    # MP4 attached_pic supports JPEG and PNG directly. GIF/WebP/TIFF/BMP are
+    # not valid MP4 cover codecs, so transcode those to JPEG.
+    poster_encoder = "copy" if poster_codec in ("mjpeg", "png") else "mjpeg"
+
+    tmp = _sibling_temp(video_path, f".tmp{p.suffix}")
     cmd = [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-nostdin",
         "-i", video_path,
-        "-i", poster_path,
-        "-map", "0", "-map", "1",
+        "-i", str(poster),
+        "-map", "0",
+    ]
+    if pic_idx is not None:
+        cmd += ["-map", f"-0:{pic_idx}"]
+    cmd += [
+        "-map", "1",
         "-c", "copy",
-        "-disposition:v:1", "attached_pic",
-        "-metadata:s:v:1", "comment=Cover (front)",
+        f"-c:v:{poster_index}", poster_encoder,
+        f"-disposition:v:{poster_index}", "attached_pic",
+        f"-metadata:s:v:{poster_index}", "comment=Cover (front)",
     ]
     if metadata:
         cmd += _mp4_metadata_flags(metadata)
@@ -454,9 +496,9 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     try:
         subprocess.run(
             cmd,
-            check=True, capture_output=True, timeout=60,
+            check=True, capture_output=True, timeout=120,
         )
-        os.replace(tmp, video_path)
+        _publish_preserving_metadata(tmp, video_path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -468,38 +510,29 @@ def _find_attached_pic(video_path: str) -> int | None:
     except (ValueError, FileNotFoundError) as e:
         print(f"Warning: skipping invalid path {video_path}: {e}", file=sys.stderr)
         return None
-    result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", video_path],
-        capture_output=True, timeout=30,
-    )
-    if result.returncode != 0:
-        return None
-    import json
     try:
-        streams = json.loads(result.stdout).get("streams", [])
-    except json.JSONDecodeError:
+        streams = _probe_streams(video_path)
+    except RuntimeError:
         return None
-    IMAGE_CODECS = {"mjpeg", "png", "bmp", "gif", "webp", "tiff"}
-    video_count = 0
-    for s in streams:
-        if s.get("codec_type") == "video":
-            video_count += 1
-    if video_count < 2:
-        return None
-    for s in streams:
-        if s.get("codec_type") == "video" and s.get("codec_name") in IMAGE_CODECS:
-            return s["index"]
-    for s in streams:
-        tags = {k.lower(): v for k, v in s.get("tags", {}).items()}
-        disp = s.get("disposition", {})
-        if "attached_pic" in tags or disp.get("attached_pic"):
-            return s["index"]
+
+    video_streams = [s for s in streams if s.get("codec_type") == "video"]
+    for stream in video_streams:
+        if stream.get("disposition", {}).get("attached_pic"):
+            return stream["index"]
+
+    # Fallback for containers that do not expose the attached_pic flag.
+    image_codecs = {"mjpeg", "png", "bmp", "gif", "webp", "tiff"}
+    image_streams = [
+        s for s in video_streams if s.get("codec_name") in image_codecs
+    ]
+    if len(image_streams) == 1 and len(video_streams) >= 2:
+        return image_streams[0]["index"]
     return None
 
 
 def remove_poster(video_path: str):
-    _validate_path(video_path, VIDEO_EXTS)
-    ext = Path(video_path).suffix.lower()
+    p = _validate_path(video_path, VIDEO_EXTS)
+    ext = p.suffix.lower()
     if ext in MKV_COMPAT_EXTS:
         cmd = ["mkvpropedit", video_path]
         for mt in sorted(set(MIME_MAP.values())):
@@ -512,23 +545,24 @@ def remove_poster(video_path: str):
                     f"Failed to remove poster: {result.stderr.decode(errors='ignore')}"
                 )
     elif ext in MP4_COMPAT_EXTS:
+        video_path = str(p)
         pic_idx = _find_attached_pic(video_path)
         if pic_idx is None:
             return
-        tmp = _sibling_temp(video_path, ".poster_rm_tmp.mp4")
+        tmp = _sibling_temp(video_path, f".poster_rm_tmp{p.suffix}")
         try:
             result = subprocess.run(
                 [
-                    "ffmpeg", "-y", "-i", video_path,
+                    "ffmpeg", "-y", "-nostdin", "-i", video_path,
                     "-map", "0", "-map", f"-0:{pic_idx}",
                     "-map_metadata", "0",
                     "-c", "copy", tmp,
                 ],
-                capture_output=True, timeout=60,
+                capture_output=True, timeout=120,
             )
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-            os.replace(tmp, video_path)
+            _publish_preserving_metadata(tmp, video_path)
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)

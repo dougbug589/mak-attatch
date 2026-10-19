@@ -947,3 +947,54 @@ class TestRemuxRegressions(unittest.TestCase):
                 attacher.remux_to_mkv(str(video))
         self.assertFalse(video.with_suffix(".mkv").exists())
         self.assertEqual(list(self.tmp.glob(".remux-*")), [])
+
+    def test_mp4_operations_preserve_mode_symlink_and_brand(self):
+        video = self.tmp / "plain.mp4"
+        _make_video(video, "mpeg4")
+        os.chmod(video, 0o644)
+        attacher.attach_poster_mp4(str(video), str(self.img))
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+        attacher.remove_poster(str(video))
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+
+        link = self.tmp / "link.mp4"
+        link.symlink_to(video)
+        attacher.attach_poster_mp4(str(link), str(self.img))
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.stat(video).st_mode & 0o777, 0o644)
+
+        mov = self.tmp / "clip.mov"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-t", "1", "-c:v", "mpeg4", "-f", "mov", str(mov)],
+            check=True, capture_output=True,
+        )
+        def brand(p):
+            return subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format_tags=major_brand",
+                 "-of", "default=nw=1:nk=1", str(p)],
+                capture_output=True, text=True,
+            ).stdout.strip()
+        self.assertEqual(brand(mov), "qt")
+        attacher.attach_poster_mp4(str(mov), str(self.img))
+        self.assertEqual(brand(mov), "qt")
+
+    def test_mp4_accepts_webp_and_multi_video(self):
+        webp = self.tmp / "poster.webp"
+        _make_image(webp)
+        video = self.tmp / "webp.mp4"
+        _make_video(video, "mpeg4")
+        attacher.attach_poster_mp4(str(video), str(webp))
+        self.assertEqual(_pic_count(str(video)), 1)
+
+        multi = self.tmp / "multi.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y",
+             "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=10",
+             "-t", "1", "-map", "0:v", "-map", "1:v", "-c:v", "mpeg4",
+             str(multi)],
+            check=True, capture_output=True,
+        )
+        attacher.attach_poster_mp4(str(multi), str(self.img))
+        self.assertEqual(_pic_count(str(multi)), 1)
