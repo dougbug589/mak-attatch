@@ -235,7 +235,7 @@ mak-attatch-cli remove -f movie.mkv --metadata-only   # remove metadata only
 mak-attatch-cli scan ~/Videos --skip-existing --embed-metadata
 ```
 
-Requires a configured TMDB API key (see [API Key](#api-key)). Attach and scan fail fast with a clear message if the key or a required tool (ffmpeg/mkvtoolnix) is missing.
+Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadata scraping, and folder scans. Attaching a local poster with `-p` does not need a key. Attach and scan fail fast with a clear message if a required tool (ffmpeg/mkvtoolnix) is missing.
 
 ---
 
@@ -246,7 +246,7 @@ Requires a configured TMDB API key (see [API Key](#api-key)). Attach and scan fa
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
-| `Tab` / `Shift+Tab` | Cycle panels |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle panels |
 | `Ctrl+L` | Focus Search panel |
 | `Ctrl+M` | Focus Posters panel |
 | `Ctrl+R` | Focus Files panel |
@@ -399,10 +399,11 @@ mak-attatch/
 ├── setup.ps1            # Windows setup (GUI only)
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
-├── tests/               # Test suite (117 tests)
+├── tests/               # Test suite (150 tests; GUI/TUI need PyQt6/textual)
 │   ├── test_attacher.py
 │   ├── test_autoattach.py
 │   ├── test_cli.py
+│   ├── test_config.py
 │   ├── test_deps.py
 │   ├── test_hotfixes.py
 │   ├── test_scanner.py
@@ -480,6 +481,10 @@ Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/setti
 ```
 ~/.config/mak-attatch/config.json
 ```
+
+To avoid storing the key on disk, set `MAK_ATTATCH_TMDB_API_KEY` in the environment; it overrides the config file.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB. Poster images and metadata are provided by [The Movie Database](https://www.themoviedb.org); please follow the [TMDB terms of use](https://www.themoviedb.org/documentation/api/terms-of-use).
 
 ---
 

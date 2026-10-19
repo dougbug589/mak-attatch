@@ -1,6 +1,7 @@
 PREFIX ?= /usr/local
 APP = mak-attatch
-PYTHON = python3
+PYTHON ?= python3
+VENV_DIR = $(PREFIX)/lib/$(APP)/.venv
 
 all: venv
 
@@ -16,11 +17,18 @@ install:
 	mkdir -p $(DESTDIR)$(PREFIX)/share/pixmaps
 	cp -r core ui poster_tui config.py main.py cli.py poster-tui requirements.txt assets $(DESTDIR)$(PREFIX)/lib/$(APP)/
 	cp assets/logo.png $(DESTDIR)$(PREFIX)/share/pixmaps/$(APP).png
-	printf '#!/bin/sh\nexec python3 $(PREFIX)/lib/$(APP)/main.py "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)
+	@if [ -z "$(DESTDIR)" ]; then \
+		$(PYTHON) -m venv $(VENV_DIR); \
+		$(VENV_DIR)/bin/pip install -q --upgrade pip; \
+		$(VENV_DIR)/bin/pip install -q -r $(PREFIX)/lib/$(APP)/requirements.txt; \
+	else \
+		echo "DESTDIR set: skipping in-tree venv; launchers fall back to python3"; \
+	fi
+	printf '#!/bin/sh\nDIR=$(PREFIX)/lib/$(APP)\nif [ -x "$$DIR/.venv/bin/python" ]; then exec "$$DIR/.venv/bin/python" "$$DIR/main.py" "$$@"; fi\nexec python3 "$$DIR/main.py" "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)
 	chmod +x $(DESTDIR)$(PREFIX)/bin/$(APP)
-	printf '#!/bin/sh\nexec python3 $(PREFIX)/lib/$(APP)/poster-tui "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
+	printf '#!/bin/sh\nDIR=$(PREFIX)/lib/$(APP)\nif [ -x "$$DIR/.venv/bin/python" ]; then exec "$$DIR/.venv/bin/python" "$$DIR/poster-tui" "$$@"; fi\nexec python3 "$$DIR/poster-tui" "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
 	chmod +x $(DESTDIR)$(PREFIX)/bin/$(APP)-tui
-	printf '#!/bin/sh\nexec python3 $(PREFIX)/lib/$(APP)/cli.py "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)-cli
+	printf '#!/bin/sh\nDIR=$(PREFIX)/lib/$(APP)\nif [ -x "$$DIR/.venv/bin/python" ]; then exec "$$DIR/.venv/bin/python" "$$DIR/cli.py" "$$@"; fi\nexec python3 "$$DIR/cli.py" "$$@"\n' > $(DESTDIR)$(PREFIX)/bin/$(APP)-cli
 	chmod +x $(DESTDIR)$(PREFIX)/bin/$(APP)-cli
 	cp mak-attatch.desktop $(DESTDIR)$(PREFIX)/share/applications/
 
