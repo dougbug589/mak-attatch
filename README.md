@@ -415,6 +415,10 @@ mak-attatch/
 
 ## Changelog
 
+### v1.3.5 — 2026-10-20
+- **Fixed** Poster cache invalidation: paths are normalized before dropping entries, so relative, symlinked, and non-normalized paths refresh correctly.
+- **Improved** CI: fixed the gui-tui apt source, made Windows smoke tests platform-aware, and isolated TUI tests from the local config.
+
 ### v1.3.4 — 2026-10-20
 - **Fixed** MOV poster attach: ffmpeg's `mov` muxer dropped `covr`, leaving the file silently unchanged. MOV now uses the MP4 muxer with the original brand, and removal preserves it.
 - **Improved** Tests: 151 total.

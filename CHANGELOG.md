@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.5 — 2026-10-20
+
+### Fixed
+
+- **Poster cache invalidation**: `clear_poster_cache()` now resolves paths the same way `has_poster()` does. Cache entries are correctly dropped for relative, symlinked, or non-normalized paths (including Windows), so an added or removed poster is picked up immediately.
+- **CI**: fixed the gui-tui runner's stale Microsoft apt source, made the Windows smoke tests platform-aware, and isolated the TUI selection tests from the developer's local TMDB key.
+
+### Tests
+
+- Full suite: 151 passed on Linux and on Python 3.12.
+
 ## v1.3.4 — 2026-10-20
 
 ### Fixed
