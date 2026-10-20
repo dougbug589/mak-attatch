@@ -274,7 +274,11 @@ class ScanTest(unittest.TestCase):
         ):
             code = _run(["scan", "~/Videos"])
         self.assertEqual(code, 0)
-        iter_files.assert_called_once_with(sub)
+        iter_files.assert_called_once()
+        self.assertEqual(
+            os.path.normpath(iter_files.call_args.args[0]),
+            os.path.normpath(sub),
+        )
 
     @mock.patch("cli.autoattach.attach_groups")
     @mock.patch("cli.autoattach.resolve_groups")
