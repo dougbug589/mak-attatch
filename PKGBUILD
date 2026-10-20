@@ -9,7 +9,7 @@ license=('MIT')
 depends=('python' 'python-pyqt6' 'python-requests' 'python-guessit' 'ffmpeg' 'mkvtoolnix-cli')
 optdepends=('python-textual: TUI interface' 'yazi: TUI file browser' 'chafa: TUI image preview')
 source=("$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('87fd7be0371358ed959f6b2aa524a8bfbb25bd2051dc5b3037aaabaa94fdf4dc')
+sha256sums=('4579c1f3ae0348027d191b5d94181c7948aefe6dc94cb26e0791722ac55256e3')
 
 package() {
     cd "$srcdir/mak-attatch-$pkgver"
