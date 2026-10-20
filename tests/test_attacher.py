@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import config
 from core import attacher, parser, tmdb
 
 
@@ -674,9 +675,26 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         cls.v2 = str(cls.tmp / "Two (2002).mkv")
         _make_video(Path(cls.v1))
         _make_video(Path(cls.v2))
+        real_get = config.get
+
+        def get(key, default=None):
+            # Without a key the app pushes SettingsScreen on mount, which
+            # would steal focus from the widgets these tests drive.
+            if key == "tmdb_api_key":
+                return "test-key"
+            return real_get(key, default)
+
+        cls._config_patches = [
+            patch.object(config, "get", side_effect=get),
+            patch.object(config, "set", return_value=None),
+        ]
+        for p in cls._config_patches:
+            p.start()
 
     @classmethod
     def tearDownClass(cls):
+        for p in reversed(cls._config_patches):
+            p.stop()
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_selection_semantics(self):
