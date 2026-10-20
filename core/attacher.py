@@ -309,6 +309,19 @@ def _probe_streams(path: str) -> list[dict]:
         raise RuntimeError(f"Invalid ffprobe output: {e}") from e
 
 
+def _probe_major_brand(path: str) -> str:
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format_tags=major_brand",
+             "-of", "default=nw=1:nk=1", path],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    # Keep trailing spaces: fourcc brands such as "qt  " are exactly 4 chars.
+    return result.stdout.rstrip("\r\n")
+
+
 def _mkv_attachment_names(video_path: str) -> list[str]:
     """Return attachment names via mkvmerge, falling back to ffprobe tags."""
     try:
@@ -528,6 +541,11 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     ]
     if metadata:
         cmd += _mp4_metadata_flags(metadata)
+    if p.suffix.lower() == ".mov":
+        # ffmpeg's MOV muxer silently drops attached_pic/covr. The MP4 muxer
+        # writes the same ISO-BMFF cover atom; keep the source major brand so
+        # QuickTime/camera files stay what they were.
+        cmd += ["-f", "mp4", "-brand", _probe_major_brand(video_path) or "qt  "]
     cmd += [tmp]
     try:
         subprocess.run(
@@ -588,12 +606,17 @@ def remove_poster(video_path: str):
             return
         tmp = _sibling_temp(video_path, f".poster_rm_tmp{p.suffix}")
         try:
+            out_opts = []
+            if ext == ".mov":
+                # Match attach_poster_mp4: the MOV muxer would rewrite the brand.
+                out_opts = ["-f", "mp4", "-brand",
+                            _probe_major_brand(video_path) or "qt  "]
             result = subprocess.run(
                 [
                     "ffmpeg", "-y", "-nostdin", "-i", video_path,
                     "-map", "0", "-map", f"-0:{pic_idx}",
                     "-map_metadata", "0",
-                    "-c", "copy", tmp,
+                    "-c", "copy", *out_opts, tmp,
                 ],
                 capture_output=True, timeout=120,
             )

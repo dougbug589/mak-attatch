@@ -192,6 +192,38 @@ class TestAttacher(unittest.TestCase):
         self.assertEqual(_covr_jpegs(str(v)), [], "remove_poster must strip covr")
 
     @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
+    def test_mov_attach_writes_covr_atom(self):
+        v = self.tmp / "covr.mov"
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=size=160x120:rate=10",
+             "-t", "1", "-c:v", "libx264", "-f", "mov", "-brand", "mp42", str(v)],
+            check=True, capture_output=True,
+        )
+
+        def brand():
+            return subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries",
+                 "format_tags=major_brand", "-of", "default=nw=1:nk=1", str(v)],
+                capture_output=True, text=True,
+            ).stdout.strip()
+
+        self.assertEqual(brand(), "mp42")
+        self.assertEqual(_covr_jpegs(str(v)), [])
+        attacher.attach_poster_mp4(str(v), str(self.img))
+        covr = _covr_jpegs(str(v))
+        self.assertEqual(len(covr), 1, "MOV must get a covr atom")
+        self.assertEqual(covr[0], self.img.read_bytes())
+        self.assertEqual(_pic_count(str(v)), 1)
+        self.assertEqual(brand(), "mp42", "MOV brand must be preserved")
+        attacher.attach_poster_mp4(str(v), str(self.img))
+        self.assertEqual(len(_covr_jpegs(str(v))), 1, "reattach must not duplicate covr")
+        self.assertEqual(brand(), "mp42")
+        attacher.remove_poster(str(v))
+        self.assertEqual(_covr_jpegs(str(v)), [], "remove_poster must strip covr from MOV")
+        self.assertEqual(_pic_count(str(v)), 0)
+        self.assertEqual(brand(), "mp42")
+
+    @unittest.skipUnless(_have_ffmpeg_codec("libx264"), "libx264 required")
     def test_mp4_to_mkv_attaches_poster_to_both(self):
         v = self.tmp / "both.mp4"
         _make_video(v, "libx264")
