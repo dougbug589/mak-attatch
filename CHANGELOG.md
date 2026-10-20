@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.4 — 2026-10-20
+
+### Fixed
+
+- **MOV poster attach**: ffmpeg's `mov` muxer silently discards `attached_pic`/`covr`, so attaching a poster to a `.mov` reported success but left the file unchanged. MOV output now uses the MP4 muxer with the source major brand (for example `qt  ` or `mp42`), and removal uses the same path so the brand survives.
+- **Tests**: added MOV cover regression coverage (attach, reattach, remove, brand preservation). 151 total.
+
 ## v1.3.3 — 2026-10-19
 
 ### Fixed

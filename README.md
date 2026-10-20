@@ -399,7 +399,7 @@ mak-attatch/
 ├── setup.ps1            # Windows setup (GUI only)
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
-├── tests/               # Test suite (150 tests; GUI/TUI need PyQt6/textual)
+├── tests/               # Test suite (151 tests; GUI/TUI need PyQt6/textual)
 │   ├── test_attacher.py
 │   ├── test_autoattach.py
 │   ├── test_cli.py
@@ -414,6 +414,10 @@ mak-attatch/
 ---
 
 ## Changelog
+
+### v1.3.4 — 2026-10-20
+- **Fixed** MOV poster attach: ffmpeg's `mov` muxer dropped `covr`, leaving the file silently unchanged. MOV now uses the MP4 muxer with the original brand, and removal preserves it.
+- **Improved** Tests: 151 total.
 
 ### v1.3.3 — 2026-10-19
 - **Fixed** MKV remux (`--to-mkv`): preserves all streams and no longer leaves a partial file on ffmpeg failure.
