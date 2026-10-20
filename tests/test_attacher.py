@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -1014,7 +1015,8 @@ class TestRemuxRegressions(unittest.TestCase):
             "subrip",
             [s.get("codec_name") for s in streams if s.get("codec_type") == "subtitle"],
         )
-        self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
+        if sys.platform != "win32":
+            self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
         self.assertEqual(list(self.tmp.glob(".remux-*")), [])
 
     def test_remux_failure_leaves_no_partial_output(self):
@@ -1033,6 +1035,7 @@ class TestRemuxRegressions(unittest.TestCase):
         self.assertFalse(video.with_suffix(".mkv").exists())
         self.assertEqual(list(self.tmp.glob(".remux-*")), [])
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX mode/symlink semantics")
     def test_mp4_operations_preserve_mode_symlink_and_brand(self):
         video = self.tmp / "plain.mp4"
         _make_video(video, "mpeg4")

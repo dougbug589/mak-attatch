@@ -144,8 +144,12 @@ def clear_poster_cache(path: str | None = None) -> None:
     """Drop cached poster status for *path*, or for every path when omitted."""
     if path is None:
         _poster_cache.clear()
-    else:
-        _poster_cache.pop(path, None)
+        return
+    try:
+        key = str(attacher._validate_path(path, attacher.VIDEO_EXTS))
+    except (ValueError, OSError):
+        key = str(Path(path).expanduser().resolve())
+    _poster_cache.pop(key, None)
 
 
 def _probe_poster(path: str) -> bool:

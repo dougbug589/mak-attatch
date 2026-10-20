@@ -269,7 +269,9 @@ class ScanTest(unittest.TestCase):
         self._tmpdirs.append(home)
         sub = os.path.join(home, "Videos")
         os.mkdir(sub)
-        with mock.patch.dict(os.environ, {"HOME": home}):
+        with mock.patch.dict(
+            os.environ, {"HOME": home, "USERPROFILE": home}
+        ):
             code = _run(["scan", "~/Videos"])
         self.assertEqual(code, 0)
         iter_files.assert_called_once_with(sub)

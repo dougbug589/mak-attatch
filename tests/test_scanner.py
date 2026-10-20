@@ -191,7 +191,10 @@ class HasPosterCacheTest(unittest.TestCase):
             self.assertFalse(scanner.has_poster(self.video))
             self.assertFalse(scanner.has_poster(other))
             self.assertEqual(run.call_count, 2)
-            scanner.clear_poster_cache(self.video)
+            # Cache keys are resolved by has_poster(); pass a non-normalized path.
+            scanner.clear_poster_cache(
+                os.path.join(os.path.dirname(self.video), ".", os.path.basename(self.video))
+            )
             self.assertFalse(scanner.has_poster(self.video))
             self.assertFalse(scanner.has_poster(other))
             self.assertEqual(run.call_count, 3)

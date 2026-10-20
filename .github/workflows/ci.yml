@@ -36,6 +36,8 @@ jobs:
           python-version: "3.12"
       - name: Install system dependencies
         run: |
+          # Runner images can ship a Microsoft apt source that returns 403.
+          sudo rm -f /etc/apt/sources.list.d/microsoft* /etc/apt/sources.list.d/azure*
           sudo apt-get update
           sudo apt-get install -y ffmpeg mkvtoolnix libegl1 libgl1 libxkbcommon0 libdbus-1-3
       - name: Install Python dependencies
