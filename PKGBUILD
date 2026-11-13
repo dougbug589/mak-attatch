@@ -10,7 +10,7 @@ depends=('python' 'python-pyqt6' 'python-requests' 'python-guessit' 'ffmpeg' 'mk
 optdepends=('python-textual: TUI interface' 'yazi: TUI file browser' 'chafa: TUI image preview')
 checkdepends=('python-pytest' 'python-textual')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('4579c1f3ae0348027d191b5d94181c7948aefe6dc94cb26e0791722ac55256e3')
+sha256sums=('237e8e6c50b474c99505384afb9d1065cd7d0af49dc79366e6c32905898e6ce9')
 
 check() {
     cd "$srcdir/mak-attatch-$pkgver"
