@@ -8,9 +8,9 @@
 [![AUR](https://img.shields.io/badge/AUR-mak--attatch-1793D1?logo=arch-linux)](https://aur.archlinux.org/packages/mak-attatch)
 [![Release](https://img.shields.io/github/v/release/dougbug589/mak-attatch)](https://github.com/dougbug589/mak-attatch/releases)
 
-**mak-attatch** fetches high-quality poster art from [The Movie Database](https://www.themoviedb.org) and embeds it into your MKV, MP4, and MOV files. The art travels with the video — no external scrapers, no network dependency, no server required.
+**mak-attatch** fetches high-quality poster art from [The Movie Database](https://www.themoviedb.org) and embeds it into your MKV, MP4, MOV and M4V files. The art travels with the video — no external scrapers, no network dependency, no server required.
 
-**Two interfaces:** a polished **PyQt6 desktop GUI** and a keyboard-driven **Textual TUI** for terminals and SSH sessions.
+**Three interfaces:** a **PyQt6 desktop GUI**, a keyboard-driven **Textual TUI** for terminals and SSH sessions, and a headless **CLI** for scripts. Linux (and macOS from source); Windows is not supported.
 
 ---
 
@@ -26,6 +26,8 @@
 - [Requirements](#requirements)
 - [Project Structure](#project-structure)
 - [Changelog](#changelog)
+- [Standalone Utility](#standalone-utility)
+- [API Key](#api-key)
 - [License](#license)
 
 ---
@@ -36,19 +38,21 @@
 |---------|-------------|
 | **TMDB Search** | Search movies and TV shows with full poster browsing |
 | **Poster Preview** | Full-resolution preview before committing |
-| **Smart Filename Parsing** | Auto-detects title and year from filenames (via `guessit`) |
+| **Smart Filename Parsing** | Auto-detects title, year, season and episode from filenames (via `guessit`) |
 | **Batch Processing** | Attach one poster to many files, or scan an entire folder |
-| **Recursive Folder Scan** | Walks directories, groups by series & season, auto-matches titles |
-| **Metadata Embedding** | Writes title, overview, genres, rating, cast into file tags |
-| **Local Images** | Use any JPEG/PNG as a custom poster |
-| **Format Safe** | MKV stays MKV; MP4/MOV keep their container (optional MKV remux) |
-| **Batch Remove** | Strip art & metadata in one operation |
+| **Recursive Folder Scan** | Walks directories, skips extras, groups by series & season, matches titles on TMDB |
+| **Title Matching** | A TMDB result is used only when its title actually matches; anything else is left for you to review |
+| **Metadata Embedding** | Writes title, overview, genres, rating, cast into file tags; TV details go in at show level, so each episode keeps its own title |
+| **Local Images** | Use any JPEG, PNG, WebP, GIF, BMP or TIFF image as the poster |
+| **Format Safe** | MKV stays MKV; MP4/MOV/M4V keep their container (optional lossless MKV remux) |
+| **Safe Rewrites** | Edited files are verified before they replace the original; audio/subtitle languages and chapters are kept; hardlinked (seeding) files are never modified |
+| **Batch Remove** | Strip posters or metadata from many files at once |
 | **Offline Ready** | Once attached, the art is self-contained in the file |
 
 **Supported formats:**
 - **MKV** — native attachment via `mkvpropedit`
-- **MP4 / MOV** — embedded `attached_pic` stream + `covr` metadata atom
-- **Other formats** (AVI, etc.) — losslessly remuxed to MKV first
+- **MP4 / MOV / M4V** — embedded `attached_pic` stream + `covr` metadata atom
+- **Other formats** (AVI, WebM, …) — losslessly remuxed to a new MKV first; the original is kept
 
 ---
 
@@ -99,10 +103,10 @@ Or build manually:
 ```bash
 git clone https://aur.archlinux.org/mak-attatch.git
 cd mak-attatch
-makepkg -si
+makepkg -si            # add --nocheck to skip the test suite during the build
 ```
 
-This installs the full package: `/usr/bin/mak-attatch`, `/usr/bin/mak-attatch-tui`, `/usr/bin/mak-attatch-cli`, `.desktop` entry, and icon.
+This installs `/usr/bin/mak-attatch` (GUI), `/usr/bin/mak-attatch-tui`, `/usr/bin/mak-attatch-cli`, a `.desktop` entry and the icon. The build runs the test suite, which pulls in `python-pytest` and `python-textual` as build-only dependencies.
 
 ### From Source
 
@@ -112,18 +116,9 @@ cd mak-attatch
 ./setup.sh          # creates .venv and installs Python deps
 ```
 
-`setup.sh` only checks for the required tools (ffmpeg, mkvtoolnix) and prints the install command. Add `--auto-install` to run it (asks for sudo) and `--with-tui` to also set up the optional TUI tools (yazi, chafa).
+`setup.sh` checks for the required tools (ffmpeg, mkvtoolnix) and prints the command to install any that are missing. Add `--auto-install` to run it (asks for sudo) and `--with-tui` to also set up the optional TUI tools (yazi, chafa).
 
-### With pip
-
-```bash
-git clone https://github.com/dougbug589/mak-attatch.git
-pipx install "./mak-attatch[gui,tui]"   # or: pip install "./mak-attatch[gui,tui]"
-```
-
-This installs `mak-attatch`, `mak-attatch-tui` and `mak-attatch-cli`. Leave out `gui` or `tui` for a lighter install; the CLI needs neither. ffmpeg and mkvtoolnix still come from your system packages.
-
-Run the app using the virtual environment Python (required on Fedora, Ubuntu, and other distros where the shebang resolves to system Python):
+Run the app with the virtual environment's Python:
 
 ```bash
 # Method 1: explicit venv path (always works)
@@ -138,27 +133,47 @@ python poster-tui
 python cli.py --help
 ```
 
-Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/env python3`) finds system Python, which lacks the installed dependencies.
+Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/env python3`) finds the system Python, which lacks the installed dependencies.
+
+To install system-wide from a checkout (launchers in `/usr/local/bin`, a private venv, desktop entry and icon):
+
+```bash
+sudo make install
+```
+
+### With pip
+
+```bash
+git clone https://github.com/dougbug589/mak-attatch.git
+pipx install "./mak-attatch[gui,tui]"   # or: pip install "./mak-attatch[gui,tui]"
+```
+
+This installs the `mak-attatch`, `mak-attatch-tui` and `mak-attatch-cli` commands. Leave out `gui` or `tui` for a lighter install; the CLI needs neither, and the GUI/TUI commands tell you what to install if their extra is missing. ffmpeg and mkvtoolnix still come from your system packages.
 
 ### Uninstall
 
 **AUR install:**
 
 ```bash
-sudo pacman -Rns mak-attatch   # removes package + config + unused deps
+sudo pacman -Rns mak-attatch   # removes the package and its now-unused dependencies
+rm -rf ~/.config/mak-attatch   # your settings and API key (pacman leaves these)
 ```
 
 **Source install:**
 
 ```bash
-cd ~/mak-attatch
-sudo make uninstall            # if you ran `make install`
-cd ~ && rm -rf mak-attatch ~/.config/mak-attatch
+cd mak-attatch
+sudo make uninstall            # only if you ran `sudo make install`
+cd .. && rm -rf mak-attatch ~/.config/mak-attatch
 ```
 
 ---
 
 ## Usage
+
+### Which files an action applies to
+
+In both the GUI and the TUI, actions apply to the **selected** files. With nothing selected they apply to **all** loaded files, and then mak-attatch asks you to confirm first. Only one file-changing operation runs at a time.
 
 ### Desktop GUI
 
@@ -167,12 +182,16 @@ mak-attatch
 ```
 
 1. **First launch:** Enter your free TMDB API key (prompted automatically).
-2. **Add files:** Browse or drag-and-drop video files.
-3. **Search:** Type a title and hit **Search TMDB**.
-4. **Pick a poster:** Double-click a result, browse posters, click to preview.
-5. **Attach:** Hit **Attach Poster**.
+2. **Add files:** **Browse Video**, **Browse Multiple**, or drag-and-drop video files.
+3. **Search:** The title is filled in from the filename; edit it if needed and hit **Search**.
+4. **Pick a poster:** Click a result, browse its posters, click one to preview it, then **Select This Poster**. Or use **Use Local Image**.
+5. **Attach:** Hit **Attach Poster**. Tick **Scrape metadata** to embed TMDB metadata too, or **Convert MP4 to MKV** for a lossless remux first.
 
-**Folder Scan (Ctrl+F):** Pick a directory. mak-attatch recursively scans (skipping extras such as featurettes, trailers and samples), groups files by title/season, auto-matches TMDB entries, and shows a review list. Groups whose closest TMDB result doesn't match the title are listed as unmatched for you to review. Hit **Attach All** to process everything. Toggle **Embed metadata** to write tags, or **Convert MP4 to MKV** for a lossless remux.
+**Cancel:** While an operation runs, **Cancel** (or `Esc`) stops it after the current file, so no file is left half-written. Closing the window during an operation asks first.
+
+**More menu:** **Remove Metadata** and **Scrape Metadata** (metadata only, no poster). For several files, Scrape looks each file up on its own.
+
+**Folder Scan (Ctrl+F):** Pick a directory. mak-attatch scans it recursively (skipping extras such as featurettes, trailers and samples), groups files by title/season and looks each group up on TMDB. The review list shows the matches; groups whose closest TMDB result doesn't match the title are listed as unmatched. **Choose Poster...** picks a different poster for a group, **Attach All** processes everything, and **Add to List** just loads the files. Options: **Skip unmatched files**, **Embed metadata**, **Convert MP4 to MKV (lossless remux)**. Files that already have a poster are skipped; to replace them, untick **Skip files that already have a poster** in the TUI's Settings, or set `"scan_skip_existing": false` in `~/.config/mak-attatch/config.json`.
 
 ### Terminal TUI
 
@@ -180,13 +199,16 @@ mak-attatch
 mak-attatch-tui
 ```
 
-1. **Search:** Type a title, press `Enter`.
-2. **Browse posters:** Arrow keys to navigate, `Enter` to preview.
-3. **Attach:** Close preview, select **Attach Poster**.
+1. **Add files:** **Browse (yazi)**, **Scan Folder**, or paste paths into the path box and press **Add**.
+2. **Search:** Type a title, press `Enter` (filled in from the first file's name).
+3. **Browse posters:** Arrow keys to navigate, `Enter` to preview (press `Enter` again to return). **Local Image** uses your own picture instead.
+4. **Attach:** Press **Attach** (tick **Scrape metadata** to embed metadata too).
 
-**File browser:** Click the **Browse (yazi)** button (or use the button in the Files panel). Multi-select files with `Space`, press `Enter` to load them.
+Other actions: **Convert** (lossless remux to MKV, keeps originals), **Remove** (posters), **Rm Meta** (metadata), **Scrape** (metadata only). Remove, Rm Meta and Scrape always ask for confirmation (`y`/`n`).
 
-**Folder scan (Ctrl+S):** Scan a directory, review auto-matches, attach in bulk.
+**File browser:** In yazi, multi-select files with `Space` and press `Enter` to load them. yazi is optional; without it, paste paths instead. Image previews use chafa (also optional).
+
+**Folder scan (Ctrl+S):** Scan a directory, review the matches, attach in bulk.
 
 ### Command-Line Interface
 
@@ -196,15 +218,19 @@ Qt-free, headless CLI for scripts, cron jobs, and file-manager actions.
 mak-attatch-cli attach -f movie.mkv -s "The Matrix" --embed-metadata
 mak-attatch-cli attach -f movie.mkv -p poster.jpg
 mak-attatch-cli attach -f "Show S01E01.mkv"           # query derived from filename
+mak-attatch-cli attach -f clip.mp4 -p poster.jpg --to-mkv   # remux to MKV first (keeps the MP4)
+mak-attatch-cli attach -f a.mkv -f b.mkv --dry-run    # check inputs, change nothing
 mak-attatch-cli remove -f movie.mkv                   # remove poster (default)
 mak-attatch-cli remove -f movie.mkv --metadata-only   # remove metadata only
 mak-attatch-cli scan ~/Videos --embed-metadata
+mak-attatch-cli scan ~/Videos --dry-run               # show what would match
 mak-attatch-cli scan ~/Videos --no-skip-existing      # also replace existing posters
 ```
 
-Folder scans skip files that already have a poster unless you pass `--no-skip-existing`. They also skip extras: `Featurettes`, `Behind The Scenes`, `Trailers` and `Sample(s)` folders, plus `-trailer`/`-sample` files. A TMDB result is only used when its title actually matches the file; anything else is reported as unmatched instead of getting a random poster. In a multi-file `attach`, a file that can't be matched is reported and skipped without stopping the rest.
-
-Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadata scraping, and folder scans. Attaching a local poster with `-p` does not need a key. Attach and scan fail fast with a clear message if a required tool (ffmpeg/mkvtoolnix) is missing.
+- **Matching:** without `-s`, each file is looked up by its own name, and a TMDB result is only used if its title actually matches. In a multi-file `attach`, a file that can't be matched is reported and skipped without stopping the rest.
+- **Scans** skip files that already have a poster (unless `--no-skip-existing`), plus extras: `Featurettes`, `Behind The Scenes`, `Deleted Scenes`, `Interviews`, `Trailers`, `Sample(s)`, `Extras` and `Bonus` folders, and `-trailer`/`-sample` files.
+- **API key:** needed for search, metadata scraping and folder scans. Attaching a local poster with `-p` does not need one.
+- **Exit codes:** `0` success, `1` if any file failed (or a dry run found a problem), `2` for usage errors. Missing tools (ffmpeg/mkvtoolnix) are reported up front.
 
 ---
 
@@ -214,20 +240,21 @@ Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadat
 
 | Key | Action |
 |-----|--------|
-| `q` | Quit |
+| `q` | Quit (asks first while an operation is running) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle panels |
 | `Ctrl+L` | Focus Search panel |
-| `Ctrl+M` | Focus Posters panel |
+| `Ctrl+M` | Focus Posters panel (many terminals send `Enter` for this key) |
 | `Ctrl+R` | Focus Files panel |
 | `Ctrl+S` | Scan folder & auto-attach |
 | `Space` | Toggle file selection |
 | `d` | Clear selection |
+| `y` / `n` / `Esc` | Answer a confirmation |
 
 ### GUI
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+O` | Open files |
+| `Ctrl+O` | Browse for a video |
 | `Ctrl+F` | Scan folder |
 | `Ctrl+Return` | Attach poster |
 | `Esc` | Cancel the running operation (after the current file) |
@@ -238,31 +265,36 @@ Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadat
 
 ### Poster Attachment by Format
 
-| Format | Method | Removal |
-|--------|--------|---------|
-| **MKV** | `mkvpropedit --add-attachment` | `mkvpropedit --delete-attachment` |
-| **MP4 / MOV** | `ffmpeg -disposition:v:1 attached_pic` + `covr` atom | `ffprobe` detect + `ffmpeg` remux strip |
-| **Other** (AVI, etc.) | Convert to MKV, then attach | Remux to MKV, then remove |
+| Format | Attach | Remove |
+|--------|--------|--------|
+| **MKV** | `mkvpropedit` adds a `cover.*` attachment (other attachments are kept) | `mkvpropedit` deletes the `cover.*` attachment |
+| **MP4 / MOV / M4V** | `ffmpeg` stream copy adding an `attached_pic` stream + `covr` atom | `ffmpeg` stream copy without the cover stream |
+| **Other** (AVI, WebM, …) | Remux to a new MKV (original kept), then attach | — (these formats can't hold a poster) |
+
+**Rewrites are safe:** MP4-family files are rewritten into a hidden temp file next to the original. The result is checked (stream count and duration) and flushed to disk before it atomically replaces the original, so a failed or truncated run never touches your file. Audio/subtitle languages, track names, chapters and the "fast start" layout are kept. Read-only files are refused. A hardlinked MKV (e.g. one a torrent client is seeding) is edited as a copy, so the other link keeps its original bytes.
 
 ### Metadata Tags
 
-| Field | MKV | MP4/MOV |
-|-------|-----|---------|
-| Title | `TITLE` tag | `title` metadata |
+| Field | MKV (movie) | MP4/MOV (movie) |
+|-------|-------------|-----------------|
+| Title | segment title + `TITLE` tag | `title` |
 | Year | `DATE_RELEASED` | `date` |
 | Overview | `SYNOPSIS` | `description` |
+| Tagline | `COMMENT` | `comment` |
 | Genres | `GENRE` | `genre` |
 | Rating | `RATING` | — |
 | Cast | `ACTOR` + `CHARACTER` | — |
-| Directors | `DIRECTOR` | `author` |
+| Directors / writers | `DIRECTOR` / `WRITTEN_BY` | `author` (directors) |
+
+**TV shows:** TMDB details describe the whole show, not the episode, so they are written at show level. In MKV they go into collection-level tags (`TargetTypeValue 70`) and the segment title is left alone. In MP4 they go into the `show` and `genre` tags, and the episode's own title, date and description are kept.
 
 ### Poster Lifecycle
 
-1. **Search** — Query TMDB API for title matches.
-2. **Select** — User picks a poster from available sizes.
-3. **Download** — Image fetched to a temp file (validated for size & type).
+1. **Search** — Query the TMDB API for title matches.
+2. **Select** — Pick one of the title's posters (any language or resolution) or a local image.
+3. **Download** — The full-resolution image is fetched to a temp file and validated (size limit, image type, magic bytes).
 4. **Attach** — Embedded into the video container.
-5. **Cleanup** — Temp files removed; original poster file preserved.
+5. **Cleanup** — Downloaded temp files are removed; a local image you chose is never touched.
 
 ---
 
@@ -286,17 +318,26 @@ Verify your file has the cover embedded:
 ffprobe -show_streams file.mp4 | grep -E "(mjpeg|attached_pic)"
 ```
 
-### "No TMDB match found"
+### "No TMDB match found" / a scan group shows as unmatched
 
-- Check your API key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)
-- Try simplifying the filename (remove extra tags like `1080p`, `BluRay`, etc.)
-- Use the manual search box to type the exact title
+- Check your API key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). A rejected key is reported as "TMDB rejected the API key (HTTP 401)".
+- mak-attatch only uses a result whose title resembles the file's title; the message names the closest result it rejected. Search manually (or use `-s "Exact Title"` in the CLI) to pick it yourself.
+- Try simplifying the filename (remove extra tags like `1080p`, `BluRay`, etc.).
 
 ### Batch scan groups files wrong
 
 The scanner parses filenames with `guessit` and falls back to folder names for series. If a file is misgrouped:
 - Ensure season folders are named clearly (`Season 1`, `S01`, etc.)
 - Avoid generic filenames like `episode01.mkv` without a parent folder name
+- Episodes named like `S01E01 - Pilot.mkv` are grouped under their show folder (`Show/Season 1/`)
+
+### "… is read-only; not modifying it"
+
+The file (or its permissions) is read-only. mak-attatch doesn't override that; make it writable (`chmod u+w file`) if you want it changed.
+
+### Disk usage went up after tagging a hardlinked file
+
+Editing a hardlinked file splits it into its own copy so the other link (e.g. a seeding torrent) stays byte-identical. MP4 rewrites always create a new file for safety; MKV edits do so only for hardlinked files.
 
 ---
 
@@ -305,14 +346,14 @@ The scanner parses filenames with `guessit` and falls back to folder names for s
 | Dependency | Version | Purpose |
 |------------|---------|---------|
 | Python | 3.10+ | Runtime |
-| ffmpeg | latest | MP4/MOV attach & remove |
-| mkvtoolnix-cli | latest | `mkvpropedit` for MKV |
+| ffmpeg (incl. `ffprobe`) | latest | MP4/MOV/M4V attach & remove, stream probing, remux |
+| mkvtoolnix-cli | latest | `mkvpropedit` / `mkvmerge` for MKV |
 | python-pyqt6 | latest | Desktop GUI |
 | python-requests | latest | TMDB API client |
 | python-guessit | latest | Filename parsing |
 | TMDB API key | free | Poster search (prompted on first launch) |
 
-**TUI extras:** `python-textual` · `yazi` (file browser) · `chafa` (terminal image preview)
+**TUI extras:** `python-textual` (required for the TUI) · `yazi` (file browser, optional) · `chafa` (terminal image preview, optional)
 
 ### Install Commands
 
@@ -373,9 +414,13 @@ mak-attatch/
 └── assets/showcase/     # Screenshots and demo videos
 ```
 
+Run the tests with `QT_QPA_PLATFORM=offscreen python -m pytest tests` (needs ffmpeg and mkvtoolnix; GUI/TUI tests are skipped without PyQt6/textual).
+
 ---
 
 ## Changelog
+
+Full details: [CHANGELOG.md](CHANGELOG.md).
 
 ### v1.4.0 — 2026-11-13
 - **Fixed** data-safety bugs: TUI deleted the user's own image; MP4/MOV metadata writes wiped audio/subtitle languages and chapter titles; MOV/M4V metadata editing failed; TV metadata overwrote episode titles; unverified rewrites could replace an original with a truncated file; editing hardlinked MKVs changed the seeding copy.
@@ -456,25 +501,27 @@ mak-attatch/
 
 ## Standalone Utility
 
-For single-file operations without launching the full app:
+For a quick single-file add or remove without opening the app:
 
 ```bash
 ./convert.sh
 ```
 
-Interactive prompts for add/remove mode, video path, and poster image. Handles format conversion automatically.
+It prompts for add/remove, the video and the poster image, then runs `mak-attatch-cli`, so it gets the same safety as the app. MP4/MOV/M4V files keep their container (you're asked whether to convert to MKV); other formats are remuxed to MKV automatically. It uses the installed `mak-attatch-cli` if available, otherwise the checkout's `.venv` or `python3`.
 
 ---
 
 ## API Key
 
-Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both the GUI and TUI prompt for it on first launch. Stored locally in:
+Get a free key at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). Both the GUI and TUI prompt for it on first launch. It is stored locally, readable only by you, in:
 
 ```
 ~/.config/mak-attatch/config.json
 ```
 
-To avoid storing the key on disk, set `MAK_ATTATCH_TMDB_API_KEY` in the environment; it overrides the config file.
+To avoid storing the key on disk, set `MAK_ATTATCH_TMDB_API_KEY` in the environment; it overrides the config file, and the settings dialogs won't write it to disk. Both v3 API keys and v4 read access tokens work (a v4 token is sent as a header instead of in the URL). Error messages never include the key.
+
+If `config.json` becomes unreadable, mak-attatch moves it aside as `config.json.bad-<timestamp>` instead of overwriting it, so you can recover your settings.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB. Poster images and metadata are provided by [The Movie Database](https://www.themoviedb.org); please follow the [TMDB terms of use](https://www.themoviedb.org/documentation/api/terms-of-use).
 
