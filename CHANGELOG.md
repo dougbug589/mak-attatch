@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.4.0 — 2026-11-13
 
 ### Changed — packaging (read before upgrading)
 

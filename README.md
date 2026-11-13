@@ -377,7 +377,7 @@ mak-attatch/
 
 ## Changelog
 
-### Unreleased
+### v1.4.0 — 2026-11-13
 - **Fixed** data-safety bugs: TUI deleted the user's own image; MP4/MOV metadata writes wiped audio/subtitle languages and chapter titles; MOV/M4V metadata editing failed; TV metadata overwrote episode titles; unverified rewrites could replace an original with a truncated file; editing hardlinked MKVs changed the seeding copy.
 - **Fixed** the TMDB API key could appear in error messages.
 - **Fixed** wrong-poster bulk matches: titles must actually match, extras are skipped, and existing posters are kept by default.
