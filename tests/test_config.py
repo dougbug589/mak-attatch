@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import config
+from mak_attatch import config
 
 
 class ConfigTest(unittest.TestCase):
@@ -61,7 +61,14 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(config.get("tmdb_api_key"), "env-key-1234567890")
 
     def test_version_matches_package(self):
-        self.assertEqual(config.VERSION, "1.3.5")
+        # One version everywhere it is declared, so releases cannot drift.
+        import re  # (tomllib is 3.11+, and CI still runs 3.10)
+        root = Path(__file__).resolve().parent.parent
+        pyproject = re.search(r'^version = "([^"]+)"$',
+                              (root / "pyproject.toml").read_text(), re.M).group(1)
+        pkgver = re.search(r"^pkgver=(\S+)$", (root / "PKGBUILD").read_text(), re.M).group(1)
+        self.assertEqual(config.VERSION, pyproject)
+        self.assertEqual(config.VERSION, pkgver)
 
 
 if __name__ == "__main__":

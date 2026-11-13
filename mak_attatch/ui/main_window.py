@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 
@@ -42,8 +43,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-import config
-from core import attacher, autoattach, parser, scanner, tmdb
+from mak_attatch import config
+from mak_attatch.core import attacher, autoattach, parser, scanner, tmdb
 
 # Exceptions these operations can legitimately raise; anything else is a bug
 # and should propagate instead of being swallowed.
@@ -79,7 +80,10 @@ class PortalFilePicker(QObject):
     def pick(self, callback, title="Select Image", start_dir="", multiple=False,
              filters=None, directory=False):
         if self._active:
-            return
+            # The portal never answered the previous request (or its dialog
+            # is still open): drop it, the newest request wins.
+            self._callback = None
+            self._finish(None)
         self._active = True
         self._callback = callback
         self._multiple = multiple
@@ -241,7 +245,18 @@ class ApiKeyDialog(QDialog):
         if not key:
             QMessageBox.warning(self, "Error", "API key cannot be empty")
             return
-        config.set("tmdb_api_key", key)
+        env_key = os.environ.get(config.API_KEY_ENV, "").strip()
+        if env_key and key == env_key:
+            # The key comes from the environment so it never has to touch
+            # disk; saving the dialog unchanged must not write it.
+            self.accept()
+            return
+        try:
+            config.set("tmdb_api_key", key)
+        except (ValueError, OSError) as e:
+            # An exception escaping a Qt slot aborts the whole application.
+            QMessageBox.warning(self, "Error", f"Could not save API key:\n{e}")
+            return
         self.accept()
 
 
@@ -314,7 +329,25 @@ class PrepareWorker(QThread):
             self.error.emit(str(e))
 
 
-class BatchWorker(QThread):
+class _CancellableWorker(QThread):
+    """Worker that can be asked to stop between files.
+
+    The file being processed when cancel() is called is always finished, so
+    cancelling never leaves a half-written video behind.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._cancel_event = threading.Event()
+
+    def cancel(self):
+        self._cancel_event.set()
+
+    def cancelled(self) -> bool:
+        return self._cancel_event.is_set()
+
+
+class BatchWorker(_CancellableWorker):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
 
@@ -333,6 +366,8 @@ class BatchWorker(QThread):
         total = len(self.video_paths)
         try:
             for i, path in enumerate(self.video_paths):
+                if self.cancelled():
+                    break
                 self.progress.emit(i + 1, total, Path(path).name)
                 try:
                     out = attacher.full_attach(path, self.poster_path,
@@ -351,7 +386,7 @@ class BatchWorker(QThread):
         self.finished.emit(results)
 
 
-class ConvertWorker(QThread):
+class ConvertWorker(_CancellableWorker):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
 
@@ -364,6 +399,8 @@ class ConvertWorker(QThread):
         results = []
         total = len(self.video_paths)
         for i, path in enumerate(self.video_paths):
+            if self.cancelled():
+                break
             self.progress.emit(i + 1, total, Path(path).name)
             try:
                 out = attacher.remux_to_mkv(path)
@@ -372,6 +409,47 @@ class ConvertWorker(QThread):
                 results.append({"path": path, "out": path, "ok": False, "error": str(e)})
         self.results = results
         self.finished.emit(results)
+
+
+class RemoveWorker(_CancellableWorker):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
+
+    def __init__(self, video_paths: list):
+        super().__init__()
+        self.video_paths = list(video_paths)
+        self.results = []
+
+    def run(self):
+        results = []
+        total = len(self.video_paths)
+        for i, path in enumerate(self.video_paths):
+            if self.cancelled():
+                break
+            self.progress.emit(i + 1, total, Path(path).name)
+            try:
+                attacher.remove_poster(path)
+                results.append({"path": path, "ok": True, "error": ""})
+            except OPERATION_ERRORS as e:
+                results.append({"path": path, "ok": False, "error": str(e)})
+        self.results = results
+        self.finished.emit(results)
+
+
+class PosterProbeWorker(_CancellableWorker):
+    """Checks which files already carry a poster, off the GUI thread."""
+
+    result = pyqtSignal(str, bool)
+
+    def __init__(self, paths: list):
+        super().__init__()
+        self.paths = list(paths)
+
+    def run(self):
+        for path in self.paths:
+            if self.cancelled():
+                return
+            self.result.emit(path, scanner.has_poster(path))
 
 
 class ScanWorker(QThread):
@@ -393,7 +471,7 @@ class ScanWorker(QThread):
             self.error.emit(str(e))
 
 
-class ResolveWorker(QThread):
+class ResolveWorker(_CancellableWorker):
     progress = pyqtSignal(str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
@@ -408,13 +486,15 @@ class ResolveWorker(QThread):
             def cb(current, total, group):
                 self.progress.emit(f"Resolving {current}/{total}: {group.title}")
 
-            resolved = autoattach.resolve_groups(self.groups, api_delay=self.api_delay, progress=cb)
+            resolved = autoattach.resolve_groups(
+                self.groups, api_delay=self.api_delay, progress=cb, cancel=self.cancelled
+            )
             self.finished.emit(resolved)
         except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
-class AutoAttachWorker(QThread):
+class AutoAttachWorker(_CancellableWorker):
     progress = pyqtSignal(str)
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
@@ -441,13 +521,14 @@ class AutoAttachWorker(QThread):
                 api_delay=self.api_delay,
                 to_mkv=self.to_mkv,
                 progress=cb,
+                cancel=self.cancelled,
             )
             self.finished.emit(summary)
         except OPERATION_ERRORS as e:
             self.error.emit(str(e))
 
 
-class MetadataWorker(QThread):
+class MetadataWorker(_CancellableWorker):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
@@ -466,6 +547,8 @@ class MetadataWorker(QThread):
         media = self.current_media if total == 1 else None
         try:
             for i, path in enumerate(self.videos):
+                if self.cancelled():
+                    break
                 self.progress.emit(i + 1, total, Path(path).name)
                 try:
                     if self.mode == "scrape":
@@ -508,40 +591,22 @@ class PosterPreviewDialog(QDialog):
         btn.clicked.connect(lambda: (self.poster_selected.emit(self.poster), self.accept()))
         layout.addWidget(btn)
 
-        self._loader = None
-        self._load()
+        from .poster_grid import load_image
+
+        # Loaded on the shared pool (size-limited); closing the dialog never
+        # waits for the download.
+        self._request = load_image(self.poster["url"], self._on_loaded)
 
     def done(self, result):
-        if self._loader is not None and self._loader.isRunning():
-            self._loader.wait()
+        self._request.cancel()
         super().done(result)
 
-    def _load(self):
-        self._loader = PosterPreviewDialog._ImageLoader(self.poster["url"])
-        self._loader.loaded.connect(self._on_loaded)
-        self._loader.start()
-
-    def _on_loaded(self, pixmap):
+    def _on_loaded(self, image):
         self.image_label.setPixmap(
-            pixmap.scaled(self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                          Qt.TransformationMode.SmoothTransformation)
+            QPixmap.fromImage(image).scaled(
+                self.image_label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
         )
-
-    class _ImageLoader(QThread):
-        loaded = pyqtSignal(QPixmap)
-
-        def __init__(self, url):
-            super().__init__()
-            self.url = url
-
-        def run(self):
-            try:
-                resp = tmdb._fetch(self.url)
-                pixmap = QPixmap()
-                pixmap.loadFromData(resp.content)
-                self.loaded.emit(pixmap)
-            except OPERATION_ERRORS:
-                pass
 
 
 class PosterPickDialog(QDialog):
@@ -557,6 +622,7 @@ class PosterPickDialog(QDialog):
 
         layout = QVBoxLayout(self)
         self.status = QLabel("Loading posters...")
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.status)
 
         self.grid = PosterGrid()
@@ -574,8 +640,20 @@ class PosterPickDialog(QDialog):
         self._worker.start()
 
     def done(self, result):
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.wait()
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            for signal in (worker.finished, worker.error):
+                try:
+                    signal.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
+            owner = self.parent()
+            if owner is not None and hasattr(owner, "_track_worker"):
+                # Keep it alive without blocking; the main window waits for
+                # it only when it closes.
+                owner._track_worker(worker)
+            else:
+                worker.wait()
         super().done(result)
 
     def _on_loaded(self, posters):
@@ -782,11 +860,16 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self.status_label = QLabel("Ready")
+        # Filenames and TMDB titles are shown here: never interpret them as HTML.
+        self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.statusBar().addWidget(self.status_label, 1)
 
-        QShortcut(QKeySequence("Ctrl+O"), self, self._browse_video)
-        QShortcut(QKeySequence("Ctrl+F"), self, self._scan_folder)
-        QShortcut(QKeySequence("Ctrl+A"), self, self._attach)
+        # Ctrl+O / Ctrl+F are set on the toolbar QActions; registering them
+        # here as well made Qt treat both as ambiguous, so neither fired.
+        # Attach is Ctrl+Return: Ctrl+A means "select all" in the file list
+        # and must never write a poster to every file.
+        QShortcut(QKeySequence("Ctrl+Return"), self, self._attach)
+        QShortcut(QKeySequence("Escape"), self, self._cancel_jobs)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -841,11 +924,20 @@ class MainWindow(QMainWindow):
         settings_act.triggered.connect(self._open_settings)
         toolbar.addAction(settings_act)
 
-    def _track_worker(self, worker):
+    def _track_worker(self, worker, job: bool = False):
+        """Keep a reference to a running worker.
+
+        job=True marks file-writing work: only one may run at a time, and it
+        can be cancelled. Searches and poster loads are not jobs.
+        """
         active = self.__dict__.get("_active_workers")
         if active is None:
             active = self.__dict__["_active_workers"] = []
+        active[:] = [w for w in active if w.isRunning()]
         active.append(worker)
+        if job:
+            self.__dict__.setdefault("_job_workers", []).append(worker)
+            self._show_cancel()
 
         def release(w=worker):
             try:
@@ -855,7 +947,89 @@ class MainWindow(QMainWindow):
 
         worker.finished.connect(release)
 
+    def _job_running(self) -> bool:
+        """True while a file-writing worker is still running.
+
+        Derived from the threads themselves rather than a flag, so a worker
+        that dies unexpectedly can never leave the window stuck "busy".
+        """
+        jobs = self.__dict__.get("_job_workers") or []
+        return any(w.isRunning() for w in jobs)
+
+    def _show_cancel(self):
+        btn = self.__dict__.get("cancel_btn")
+        if btn is None:
+            return
+        btn.setEnabled(True)
+        btn.show()
+        timer = self.__dict__.get("_job_poll")
+        if timer is None:
+            timer = self._job_poll = QTimer(self)
+            timer.setInterval(300)
+            timer.timeout.connect(self._poll_jobs)
+        timer.start()
+
+    def _poll_jobs(self):
+        if not self._job_running():
+            self.cancel_btn.hide()
+            self._job_poll.stop()
+            jobs = self.__dict__.get("_job_workers") or []
+            jobs[:] = [w for w in jobs if w.isRunning()]
+
+    def _cancel_jobs(self) -> bool:
+        """Ask every running worker to stop after its current file."""
+        cancelled = False
+        for w in self.__dict__.get("_active_workers") or []:
+            if w.isRunning() and hasattr(w, "cancel"):
+                w.cancel()
+                cancelled = True
+        if cancelled:
+            btn = self.__dict__.get("cancel_btn")
+            if btn is not None:
+                btn.setEnabled(False)
+            self.status_label.setText("Cancelling — finishing the current file...")
+        return cancelled
+
+    def _begin_job(self) -> bool:
+        """Allow one file-writing operation at a time.
+
+        Two batches editing the same files concurrently can corrupt MKVs
+        (mkvpropedit does no locking) or silently undo MP4 rewrites.
+        """
+        if self._job_running():
+            self.status_label.setText(
+                "Another operation is still running — wait for it to finish"
+            )
+            return False
+        return True
+
+    def _confirm_all_files(self, action: str, targets: list) -> bool:
+        """Ask explicitly when nothing is selected and an action hits every file."""
+        if self.__dict__.get("selected_video_paths") or len(targets) <= 1:
+            return True
+        reply = QMessageBox.question(
+            self, "Confirm",
+            f"{action} ALL {len(targets)} loaded files?\n\n"
+            "Nothing is selected in the file list.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
     def closeEvent(self, event):
+        if self._job_running():
+            reply = QMessageBox.question(
+                self, "Operation running",
+                "An operation is still running.\n\nCancel it and quit? The file "
+                "being processed right now is finished first, so nothing is left "
+                "half-written.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        self._cancel_jobs()
         active = self.__dict__.get("_active_workers") or []
         for worker in list(active):
             worker.wait()
@@ -959,6 +1133,7 @@ class MainWindow(QMainWindow):
         self.local_img_btn.clicked.connect(self._browse_image)
         img_row.addWidget(self.local_img_btn)
         self.local_img_label = QLabel("")
+        self.local_img_label.setTextFormat(Qt.TextFormat.PlainText)
         img_row.addWidget(self.local_img_label, 1)
         lay.addLayout(img_row)
 
@@ -973,6 +1148,12 @@ class MainWindow(QMainWindow):
         self.progress.setMaximumWidth(200)
         self.progress.hide()
         lay.addWidget(self.progress)
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setToolTip("Stop after the file currently being processed (Esc)")
+        self.cancel_btn.clicked.connect(self._cancel_jobs)
+        self.cancel_btn.hide()
+        lay.addWidget(self.cancel_btn)
 
         self.attach_btn = QPushButton("Attach Poster")
         self.attach_btn.setEnabled(False)
@@ -1054,7 +1235,7 @@ class MainWindow(QMainWindow):
         count = sum(len(g.files) for g in groups)
         self.status_label.setText(f"Found {count} files, resolving titles...")
         self._resolve_worker = ResolveWorker(
-            groups, api_delay=config.get("scan_api_delay") or 0.25
+            groups, api_delay=config.get("scan_api_delay")
         )
         self._resolve_worker.progress.connect(lambda msg: self.status_label.setText(msg))
         self._resolve_worker.finished.connect(self._on_resolve_done)
@@ -1083,6 +1264,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Nothing to attach")
             return
         paths = [p for e in entries for p in e["group"].files]
+        if not self._begin_job():
+            return
         self._append_paths(paths)
         skip = config.get("scan_skip_existing")
         self.progress.show()
@@ -1092,13 +1275,13 @@ class MainWindow(QMainWindow):
             entries,
             scrape_metadata=dlg.embed_meta.isChecked(),
             skip_existing=skip,
-            api_delay=config.get("scan_api_delay") or 0.25,
+            api_delay=config.get("scan_api_delay"),
             to_mkv=dlg.convert_mkv.isChecked(),
         )
         self._auto_worker.progress.connect(lambda msg: self.status_label.setText(msg))
         self._auto_worker.finished.connect(self._on_auto_done)
         self._auto_worker.error.connect(self._on_auto_error)
-        self._track_worker(self._auto_worker)
+        self._track_worker(self._auto_worker, job=True)
         self._auto_worker.start()
 
     def _on_auto_error(self, err):
@@ -1108,6 +1291,8 @@ class MainWindow(QMainWindow):
 
     def _on_auto_done(self, summary):
         self.progress.hide()
+        for old, new in (summary.get("converted") or {}).items():
+            self._replace_path(old, new)
         self._refresh_file_rows()
         ok, fail, skipped = summary["ok"], summary["fail"], summary["skipped"]
         self.status_label.setText(
@@ -1162,8 +1347,12 @@ class MainWindow(QMainWindow):
         self.search_btn.setText("Searching...")
         self.status_label.setText("Searching...")
 
+        self._search_gen = self.__dict__.get("_search_gen", 0) + 1
+        gen = self._search_gen
         self._search_worker = SearchWorker(query)
-        self._search_worker.finished.connect(self._on_search_done)
+        self._search_worker.finished.connect(
+            lambda results, g=gen: g == self._search_gen and self._on_search_done(results)
+        )
         self._search_worker.error.connect(self._on_search_error)
         self._track_worker(self._search_worker)
         self._search_worker.start()
@@ -1195,8 +1384,14 @@ class MainWindow(QMainWindow):
         self.current_media = {"id": data["id"], "media_type": data["media_type"]}
         self.status_label.setText(f"Loading posters for {data['title']}...")
 
+        # Clicking result A then B must never show A's posters while B is the
+        # selected title (and then attach A's poster with B's metadata).
+        self._poster_gen = self.__dict__.get("_poster_gen", 0) + 1
+        gen = self._poster_gen
         self._poster_worker = PosterWorker(data["id"], data["media_type"])
-        self._poster_worker.finished.connect(self._on_posters_loaded)
+        self._poster_worker.finished.connect(
+            lambda posters, g=gen: g == self._poster_gen and self._on_posters_loaded(posters)
+        )
         self._poster_worker.error.connect(self._on_search_error)
         self._track_worker(self._poster_worker)
         self._poster_worker.start()
@@ -1245,12 +1440,21 @@ class MainWindow(QMainWindow):
         if not self.selected_poster and not self.local_poster_path:
             QMessageBox.warning(self, "Error", "No poster selected")
             return
+        if not self._begin_job():
+            return
+        if not self._confirm_all_files("Attach this poster to", targets):
+            return
 
         self.progress.show()
         self.progress.setRange(0, 0)
         self.attach_btn.setEnabled(False)
         self.status_label.setText("Preparing poster...")
 
+        # Snapshot at click time: picking another poster or toggling options
+        # while the poster downloads must not change what this batch does,
+        # and the user's own local image must never be treated as a temp file.
+        cleanup_poster = self.local_poster_path is None
+        to_mkv = self.mkv_check.isChecked()
         media = self.current_media if self.meta_check.isChecked() else None
         self._prepare_worker = PrepareWorker(
             poster_url=None if self.local_poster_path else self.selected_poster["url"],
@@ -1260,11 +1464,11 @@ class MainWindow(QMainWindow):
         self._prepare_worker.ready.connect(
             lambda poster_path, metadata: self._batch_attach(
                 targets, poster_path, metadata,
-                to_mkv=self.mkv_check.isChecked(),
+                to_mkv=to_mkv, cleanup_poster=cleanup_poster,
             )
         )
         self._prepare_worker.error.connect(self._on_attach_error)
-        self._track_worker(self._prepare_worker)
+        self._track_worker(self._prepare_worker, job=True)
         self._prepare_worker.start()
 
     def _on_attach_error(self, err):
@@ -1273,19 +1477,22 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Error: {err}")
         QMessageBox.critical(self, "Error", f"Attachment failed:\n{err}")
 
-    def _batch_attach(self, targets, poster_path, metadata=None, to_mkv=False):
+    def _batch_attach(self, targets, poster_path, metadata=None, to_mkv=False,
+                      cleanup_poster=None):
+        if cleanup_poster is None:
+            cleanup_poster = poster_path != self.local_poster_path
         self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
         self.status_label.setText(f"Attaching to 1/{len(targets)}...")
 
         self._batch_worker = BatchWorker(
             targets, poster_path, metadata,
-            cleanup_poster=(poster_path != self.local_poster_path),
+            cleanup_poster=cleanup_poster,
             to_mkv=to_mkv,
         )
         self._batch_worker.progress.connect(self._on_batch_progress)
         self._batch_worker.finished.connect(self._on_batch_done)
-        self._track_worker(self._batch_worker)
+        self._track_worker(self._batch_worker, job=True)
         self._batch_worker.start()
 
     def _on_batch_progress(self, current, total, filename):
@@ -1328,6 +1535,8 @@ class MainWindow(QMainWindow):
         if not targets:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
+        if not self._begin_job():
+            return
         self.progress.show()
         self.progress.setRange(0, len(targets))
         self.progress.setValue(0)
@@ -1336,7 +1545,7 @@ class MainWindow(QMainWindow):
         self._convert_worker = ConvertWorker(targets)
         self._convert_worker.progress.connect(self._on_convert_progress)
         self._convert_worker.finished.connect(self._on_convert_done)
-        self._track_worker(self._convert_worker)
+        self._track_worker(self._convert_worker, job=True)
         self._convert_worker.start()
 
     def _on_convert_progress(self, current, total, filename):
@@ -1370,51 +1579,54 @@ class MainWindow(QMainWindow):
         if not targets:
             QMessageBox.warning(self, "Error", "No video file selected")
             return
+        if not self._begin_job():
+            return
 
         count = len(targets)
-        msg = (
-            "Remove poster from this video?"
-            if count == 1
-            else f"Remove poster from {count} files?"
-        )
+        if count == 1:
+            msg = "Remove poster from this video?"
+        elif self.selected_video_paths:
+            msg = f"Remove poster from {count} selected files?"
+        else:
+            msg = f"Remove poster from ALL {count} loaded files?\n\nNothing is selected."
         reply = QMessageBox.question(
             self, "Confirm", msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        if count == 1:
-            try:
-                attacher.remove_poster(targets[0])
-                name = Path(targets[0]).name
-                self.status_label.setText(f"Poster removed from {name}")
-                QMessageBox.information(self, "Done", f"Poster removed from {name}!")
-            except OPERATION_ERRORS as e:
-                self.status_label.setText("Error removing poster")
-                QMessageBox.critical(self, "Error", f"Failed to remove poster:\n{e}")
-        else:
-            self._batch_remove(targets)
-
-    def _batch_remove(self, targets):
+        # MP4 poster removal rewrites the whole file; never on the GUI thread.
         self.progress.show()
-        self.progress.setRange(0, len(targets))
+        self.progress.setRange(0, count)
         self.progress.setValue(0)
         self.attach_btn.setEnabled(False)
-        ok = 0
-        fail = 0
-        for i, path in enumerate(targets):
-            self.progress.setValue(i + 1)
-            self.status_label.setText(f"Removing {i + 1}/{len(targets)}: {Path(path).name}")
-            try:
-                attacher.remove_poster(path)
-                ok += 1
-            except OPERATION_ERRORS:
-                fail += 1
+        self._remove_worker = RemoveWorker(targets)
+        self._remove_worker.progress.connect(self._on_remove_progress)
+        self._remove_worker.finished.connect(self._on_remove_done)
+        self._track_worker(self._remove_worker, job=True)
+        self._remove_worker.start()
+
+    def _on_remove_progress(self, current, total, filename):
+        self.progress.setValue(current)
+        self.status_label.setText(f"Removing {current}/{total}: {filename}")
+
+    def _on_remove_done(self, results):
         self.progress.hide()
         self.attach_btn.setEnabled(True)
+        self._refresh_file_rows()
+        ok = sum(1 for r in results if r["ok"])
+        fail = len(results) - ok
         if fail:
-            QMessageBox.warning(self, "Done", f"Removed from {ok} files.\n{fail} failed.")
+            detail = "\n".join(
+                f"{Path(r['path']).name}: {r['error']}" for r in results if not r["ok"]
+            )[:2000]
+            QMessageBox.warning(self, "Done",
+                                f"Removed from {ok} file(s).\n{fail} failed.\n\n{detail}")
+        elif len(results) == 1:
+            QMessageBox.information(self, "Done",
+                                    f"Poster removed from {Path(results[0]['path']).name}!")
         else:
             QMessageBox.information(self, "Done", f"Poster removed from all {ok} files!")
         self.status_label.setText(f"Remove: {ok} succeeded, {fail} failed")
@@ -1446,6 +1658,8 @@ class MainWindow(QMainWindow):
         self._start_metadata_worker(videos, "scrape")
 
     def _start_metadata_worker(self, videos, mode):
+        if not self._begin_job():
+            return
         self.progress.show()
         self.progress.setRange(0, len(videos))
         self.progress.setValue(0)
@@ -1460,7 +1674,7 @@ class MainWindow(QMainWindow):
             lambda fail: self._on_metadata_done(mode, len(videos), fail)
         )
         self._metadata_worker.error.connect(self._on_metadata_error)
-        self._track_worker(self._metadata_worker)
+        self._track_worker(self._metadata_worker, job=True)
         self._metadata_worker.start()
 
     def _on_metadata_progress(self, current, total, filename):
@@ -1547,6 +1761,7 @@ class MainWindow(QMainWindow):
                 f"No files selected — operations apply to all {len(self.video_paths)} files")
 
     def _load_video(self, path):
+        self._reset_poster_choice()
         self.video_path = path
         self.video_paths = [path]
         self.selected_video_paths = set()
@@ -1557,6 +1772,7 @@ class MainWindow(QMainWindow):
         self._search()
 
     def _load_videos(self, paths):
+        self._reset_poster_choice()
         self.video_path = paths[0]
         self.video_paths = paths
         self.selected_video_paths = set()
@@ -1565,6 +1781,15 @@ class MainWindow(QMainWindow):
         parsed = parser.parse_filename(paths[0])
         self.search_input.setText(parser.build_search_query(parsed))
         self._search()
+
+    def _reset_poster_choice(self):
+        """A new file set must not inherit the previous title's poster."""
+        self.selected_poster = None
+        self.local_poster_path = None
+        self.current_media = None
+        self.attach_btn.setEnabled(False)
+        self.local_img_label.setText("")
+        self.poster_grid.clear()
 
     def _append_paths(self, paths, replace=False):
         if replace:
@@ -1589,7 +1814,20 @@ class MainWindow(QMainWindow):
         self.files_label.setText("Files (0)")
 
     def _refresh_file_rows(self):
+        # Rebuilding the list must not silently drop the user's selection:
+        # clear() emits itemSelectionChanged with nothing selected, which used
+        # to turn the next "attach to 3 selected files" into "attach to all".
+        keep = set(self.__dict__.get("selected_video_paths") or ())
+        self.file_list.blockSignals(True)
+        try:
+            self._rebuild_file_rows(keep)
+        finally:
+            self.file_list.blockSignals(False)
+        self.selected_video_paths = keep & set(self.video_paths)
+
+    def _rebuild_file_rows(self, keep: set):
         self.file_list.clear()
+        unknown: list[str] = []
         common = ""
         if self.video_paths:
             try:
@@ -1602,11 +1840,42 @@ class MainWindow(QMainWindow):
                 rel = os.path.basename(p)
             if len(rel) >= len(p):
                 rel = p
-            has = scanner.has_poster(p)
-            item = QListWidgetItem(f"{'✓' if has else ' '}  {rel}")
+            # Known answers show at once; the rest are probed in the
+            # background (one mkvmerge/ffprobe per file used to freeze the UI).
+            has = scanner.cached_has_poster(p)
+            if has is None:
+                unknown.append(p)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, p)
-            item.setData(Qt.ItemDataRole.UserRole + 1, has)
-            if has:
-                item.setToolTip("Poster already attached")
+            item.setData(Qt.ItemDataRole.UserRole + 2, rel)
+            self._set_poster_mark(item, bool(has))
             self.file_list.addItem(item)
+            if p in keep:
+                item.setSelected(True)
         self.files_label.setText(f"Files ({len(self.video_paths)})")
+        if unknown:
+            self._probe_posters(unknown)
+
+    @staticmethod
+    def _set_poster_mark(item: QListWidgetItem, has: bool):
+        rel = item.data(Qt.ItemDataRole.UserRole + 2) or ""
+        item.setText(f"{'✓' if has else ' '}  {rel}")
+        item.setData(Qt.ItemDataRole.UserRole + 1, has)
+        item.setToolTip("Poster already attached" if has else "")
+
+    def _probe_posters(self, paths: list):
+        self._probe_gen = self.__dict__.get("_probe_gen", 0) + 1
+        gen = self._probe_gen
+        worker = PosterProbeWorker(paths)
+        worker.result.connect(
+            lambda path, has, g=gen: g == self._probe_gen and self._on_poster_probed(path, has)
+        )
+        self._track_worker(worker)
+        worker.start()
+
+    def _on_poster_probed(self, path: str, has: bool):
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == path:
+                self._set_poster_mark(item, has)
+                break

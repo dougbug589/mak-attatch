@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from core import scanner
+from mak_attatch.core import scanner
 
 
 def _have(cmd: str) -> bool:
@@ -163,6 +163,7 @@ class HasPosterCacheTest(unittest.TestCase):
 
     def _no_attachments_result(self):
         result = mock.Mock()
+        result.returncode = 0
         result.stdout = b'{"attachments": []}'
         return result
 

@@ -1,11 +1,10 @@
-import json
 import os
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core import attacher, parser
+from mak_attatch.core import attacher, parser
 
 
 @dataclass
@@ -24,11 +23,37 @@ _GENERIC_TITLE_RE = re.compile(
 _SEASON_FOLDER_RE = re.compile(
     r"(?i)(?:^|[\s.\-_])(?:season|s)\s*(\d{1,2})(?:$|[\s.\-_])"
 )
+# "S01E01 - Pilot.mkv": the name starts with the episode marker, so whatever
+# guessit calls the title ("Pilot") is the episode title, not the series.
+_LEADING_EPISODE_RE = re.compile(
+    r"(?i)^\s*(?:s\d{1,2}\s*e\d{1,3}|\d{1,2}x\d{1,3}|ep?\s*\d{1,3}|episode\s*\d{1,3})\b"
+)
 _NON_SERIES_FOLDERS = {
     "", "season", "seasons", "series", "tv", "tv shows", "shows", "show",
     "movies", "movie", "videos", "video", "films", "anime", "animes",
     "cartoons", "documentaries", "kids", "children",
+    "specials", "special", "downloads", "download", "media", "library",
 }
+
+# Extras are not the title the folder is named after: matching them on their
+# own name ("Sample", "Behind the Scenes") attaches some unrelated title's
+# poster. Folder names follow Plex/Jellyfin conventions.
+_EXTRAS_FOLDERS = {
+    "extras", "featurettes", "behind the scenes", "deleted scenes",
+    "interviews", "scenes", "trailers", "sample", "samples", "bonus",
+}
+# Plex/Jellyfin extras suffixes ("Movie-trailer.mkv") and scene samples
+# ("release.sample.mkv"). Deliberately narrow so real titles such as
+# "The Interview.mkv" or "Deleted.mkv" are still scanned.
+_EXTRAS_FILE_RE = re.compile(
+    r"(?i)(?:-(?:trailer|sample|featurette|behindthescenes|deleted|interview|scene|short|other)"
+    r"|[\s._\-]sample)$"
+)
+
+
+def _is_extra_file(name: str) -> bool:
+    stem = Path(name).stem
+    return stem.lower() == "sample" or bool(_EXTRAS_FILE_RE.search(stem))
 
 
 def iter_video_files(root: str) -> list[str]:
@@ -38,10 +63,11 @@ def iter_video_files(root: str) -> list[str]:
         return []
     files: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames.sort()
+        # Prune extras folders below the scan root (never the root itself).
+        dirnames[:] = sorted(d for d in dirnames if d.lower() not in _EXTRAS_FOLDERS)
         for name in sorted(filenames):
             full = os.path.join(dirpath, name)
-            if parser.is_video(full):
+            if parser.is_video(full) and not _is_extra_file(name):
                 files.append(full)
     return files
 
@@ -109,7 +135,9 @@ def classify(files: list[str]) -> list[MediaGroup]:
         info = parser.parse_filename(path)
 
         if info["type"] == "episode":
-            if not _is_generic_title(info["title"]):
+            series_in_name = (info.get("title_guessed", True)
+                              and not _LEADING_EPISODE_RE.match(stem))
+            if series_in_name and not _is_generic_title(info["title"]):
                 group = get_group("show", info["title"], info["season"], info["year"])
             else:
                 series, season = _series_and_season_from_folders(path)
@@ -157,20 +185,31 @@ def _probe_poster(path: str) -> bool:
     if ext in attacher.MP4_COMPAT_EXTS:
         return attacher._find_attached_pic(path) is not None
     if ext in attacher.MKV_COMPAT_EXTS:
+        # Same definition of "has a poster" as attach/remove use: a cover.*
+        # attachment. Other images (font previews, backdrops) do not count,
+        # or --skip-existing would skip MKVs that have no poster at all.
         try:
-            result = subprocess.run(
-                ["mkvmerge", "-J", path],
-                capture_output=True, timeout=30, check=True,
-            )
-            data = json.loads(result.stdout)
-        except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
+            return bool(attacher._cover_attachment_names(path))
+        except (RuntimeError, OSError, subprocess.SubprocessError):
             return False
-        mimes = set(attacher.MIME_MAP.values())
-        for att in data.get("attachments", []):
-            if att.get("content_type") in mimes or att.get("mime_type") in mimes:
-                return True
-        return False
     return False
+
+
+def cached_has_poster(path: str) -> bool | None:
+    """The cached answer for *path* if it is still current, else None.
+
+    Never probes, so UIs can show known results instantly and fetch the rest
+    with has_poster() off the UI thread.
+    """
+    try:
+        key = str(attacher._validate_path(path, attacher.VIDEO_EXTS))
+        st = os.stat(key)
+    except (ValueError, OSError):
+        return False
+    cached = _poster_cache.get(key)
+    if cached is not None and (st.st_mtime_ns, st.st_size) == cached[:2]:
+        return cached[2]
+    return None
 
 
 def has_poster(path: str) -> bool:

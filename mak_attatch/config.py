@@ -1,6 +1,8 @@
 import json
 import os
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 VERSION = "1.3.5"
@@ -19,10 +21,35 @@ DEFAULTS = {
     "default_poster_size": "w500",
     "auto_convert_video": True,
     "last_dir": "",
-    "scan_skip_existing": False,
+    "scan_skip_existing": True,
     "scan_api_delay": 0.25,
     "convert_to_mkv": False,
 }
+
+
+_FALSE_STRINGS = {"", "0", "false", "no", "off"}
+
+
+def _as_bool(value) -> bool:
+    # bool("false") is True; hand-edited configs often contain strings.
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSE_STRINGS
+    return bool(value)
+
+
+def _set_aside_unreadable() -> None:
+    """Keep an unparseable config instead of letting the next save erase it.
+
+    Without this, load() returns defaults and the next set() (e.g. a GUI
+    checkbox) rewrites the file, silently losing the stored API key.
+    """
+    backup = CONFIG_FILE.with_name(f"config.json.bad-{time.strftime('%Y%m%d-%H%M%S')}")
+    try:
+        os.replace(CONFIG_FILE, backup)
+    except OSError:
+        return
+    print(f"Warning: {CONFIG_FILE} could not be read; moved it to {backup.name}",
+          file=sys.stderr)
 
 
 def _normalize(data: dict) -> dict:
@@ -41,7 +68,7 @@ def _normalize(data: dict) -> dict:
         data["scan_api_delay"] = DEFAULTS["scan_api_delay"]
 
     for key in BOOL_KEYS:
-        data[key] = bool(data.get(key))
+        data[key] = _as_bool(data.get(key))
 
     data["last_dir"] = str(data.get("last_dir") or "")
     return data
@@ -52,9 +79,13 @@ def load() -> dict:
         try:
             with open(CONFIG_FILE) as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, PermissionError, OSError):
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            _set_aside_unreadable()
+            return DEFAULTS.copy()
+        except OSError:
             return DEFAULTS.copy()
         if not isinstance(data, dict):
+            _set_aside_unreadable()
             return DEFAULTS.copy()
         return _normalize(data)
     return DEFAULTS.copy()
@@ -101,7 +132,7 @@ def set(key: str, value):
         except (TypeError, ValueError):
             raise ValueError("scan_api_delay must be a number") from None
     elif key in BOOL_KEYS:
-        value = bool(value)
+        value = _as_bool(value)
     config = load()
     config[key] = value
     save(config)

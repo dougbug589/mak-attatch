@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QObject, QPoint, QRect, QRunnable, QSize, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
@@ -8,27 +8,83 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from core import tmdb
+from mak_attatch.core import tmdb
 
 from .main_window import OPERATION_ERRORS
 
+# Popular titles have 100-300 posters. One thread per thumbnail used to start
+# that many concurrent requests on one shared HTTP session; a small pool keeps
+# it bounded and lets queued-but-unneeded loads be skipped.
+_POOL_THREADS = 6
+_pool: QThreadPool | None = None
 
-class ImageLoader(QThread):
-    loaded = pyqtSignal(int, QPixmap)
 
-    def __init__(self, index: int, url: str):
+def _image_pool() -> QThreadPool:
+    global _pool
+    if _pool is None:
+        _pool = QThreadPool()
+        _pool.setMaxThreadCount(_POOL_THREADS)
+    return _pool
+
+
+class ImageRequest(QObject):
+    """A pending image download; cancel() makes a queued load a no-op."""
+
+    loaded = pyqtSignal(QImage)
+
+    def __init__(self, url: str):
         super().__init__()
-        self.index = index
         self.url = url
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def _fetch_image_bytes(url: str) -> bytes:
+    """Download at most tmdb.MAX_IMAGE_SIZE bytes (previews were unbounded)."""
+    resp = tmdb._fetch(url, stream=True)
+    try:
+        data = bytearray()
+        for chunk in resp.iter_content(65536):
+            data += chunk
+            if len(data) > tmdb.MAX_IMAGE_SIZE:
+                raise tmdb.TMDBError("Image exceeded size limit")
+        return bytes(data)
+    finally:
+        resp.close()
+
+
+class _ImageTask(QRunnable):
+    def __init__(self, request: ImageRequest):
+        super().__init__()
+        self.request = request
 
     def run(self):
+        req = self.request
+        if req.cancelled:
+            return
         try:
-            resp = tmdb._fetch(self.url)
-            pixmap = QPixmap()
-            pixmap.loadFromData(resp.content)
-            self.loaded.emit(self.index, pixmap)
+            data = _fetch_image_bytes(req.url)
         except OPERATION_ERRORS:
-            pass
+            return
+        # QImage (unlike QPixmap) may be built off the GUI thread; the
+        # receiver converts it to a pixmap on the GUI thread.
+        image = QImage()
+        if req.cancelled or not image.loadFromData(data):
+            return
+        try:
+            req.loaded.emit(image)
+        except RuntimeError:
+            pass  # the request object was already deleted
+
+
+def load_image(url: str, slot) -> ImageRequest:
+    """Fetch an image on the shared pool and deliver a QImage to ``slot``."""
+    req = ImageRequest(url)
+    req.loaded.connect(slot)
+    _image_pool().start(_ImageTask(req))
+    return req
 
 
 class PosterCard(QFrame):
@@ -54,7 +110,7 @@ class PosterCard(QFrame):
         self.thumb.setFixedSize(168, 230)
         layout.addWidget(self.thumb)
 
-        info = QLabel(f"{poster['width']}x{poster['height']}")
+        info = QLabel(f"{poster.get('width', 0)}x{poster.get('height', 0)}")
         info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info.setStyleSheet("font-size: 11px;")
         layout.addWidget(info)
@@ -65,19 +121,14 @@ class PosterCard(QFrame):
         lang_label.setStyleSheet("font-size: 10px;")
         layout.addWidget(lang_label)
 
-        self.loader = None
         self._selected = False
-        self._load_thumb()
+        self.request = load_image(self.poster["thumb_url"], self._on_loaded)
 
-    def _load_thumb(self):
-        self.loader = ImageLoader(0, self.poster["thumb_url"])
-        self.loader.loaded.connect(self._on_loaded)
-        self.loader.start()
-
-    def _on_loaded(self, _idx, pixmap):
+    def _on_loaded(self, image: QImage):
         self.thumb.setPixmap(
-            pixmap.scaled(self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                          Qt.TransformationMode.SmoothTransformation)
+            QPixmap.fromImage(image).scaled(
+                self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
         )
 
     def set_selected(self, selected: bool):
@@ -107,7 +158,6 @@ class PosterGrid(QScrollArea):
         self.setWidget(self.container)
 
         self.cards: list[PosterCard] = []
-        self._pending: list[PosterCard] = []
         self._selected_card: PosterCard | None = None
 
     def load_posters(self, posters: list[dict]):
@@ -130,38 +180,13 @@ class PosterGrid(QScrollArea):
     def clear(self):
         self._selected_card = None
         cards, self.cards = self.cards, []
-        pending = getattr(self, "_pending", None)
-        if pending is None:
-            pending = []
-            self._pending = pending
         for card in cards:
+            # Queued thumbnail loads for removed cards are skipped; running
+            # ones finish in the pool and their result is simply dropped.
+            card.request.cancel()
             self.flow.removeWidget(card)
             card.setParent(None)
-            loader = card.loader
-            if loader is None:
-                card.deleteLater()
-                continue
-            # Never wait on a network thread from the GUI thread. The pending
-            # list keeps the card (and its QThread) alive until it finishes.
-            try:
-                loader.loaded.disconnect(card._on_loaded)
-            except (TypeError, RuntimeError):
-                pass
-            if loader.isRunning():
-                pending.append(card)
-                loader.finished.connect(lambda c=card: self._release_card(c))
-            else:
-                card.deleteLater()
-
-    def _release_card(self, card):
-        pending = getattr(self, "_pending", None)
-        if pending is not None:
-            try:
-                pending.remove(card)
-            except ValueError:
-                pass
-        card.deleteLater()
-
+            card.deleteLater()
 
 class QFlowLayout(QLayout):
     def __init__(self, parent=None, spacing=10):

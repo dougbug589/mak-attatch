@@ -112,6 +112,17 @@ cd mak-attatch
 ./setup.sh          # creates .venv and installs Python deps
 ```
 
+`setup.sh` only checks for the required tools (ffmpeg, mkvtoolnix) and prints the install command. Add `--auto-install` to run it (asks for sudo) and `--with-tui` to also set up the optional TUI tools (yazi, chafa).
+
+### With pip
+
+```bash
+git clone https://github.com/dougbug589/mak-attatch.git
+pipx install "./mak-attatch[gui,tui]"   # or: pip install "./mak-attatch[gui,tui]"
+```
+
+This installs `mak-attatch`, `mak-attatch-tui` and `mak-attatch-cli`. Leave out `gui` or `tui` for a lighter install; the CLI needs neither. ffmpeg and mkvtoolnix still come from your system packages.
+
 Run the app using the virtual environment Python (required on Fedora, Ubuntu, and other distros where the shebang resolves to system Python):
 
 ```bash
@@ -128,51 +139,6 @@ python cli.py --help
 ```
 
 Do NOT use `./main.py` or `./poster-tui` directly — the shebang (`#!/usr/bin/env python3`) finds system Python, which lacks the installed dependencies.
-
-### Windows (GUI only)
-
-**Prerequisites:** Windows 10/11 with `winget` (built-in on Windows 10 20H2+).
-
-```powershell
-git clone https://github.com/dougbug589/mak-attatch.git
-cd mak-attatch
-powershell -ExecutionPolicy Bypass -File setup.ps1
-```
-
-**Launch:**
-
-```powershell
-.\.venv\Scripts\python.exe main.py
-```
-
-**Optional: activate the venv first** (use `Set-ExecutionPolicy -Scope Process Bypass` if `.venv\Scripts\activate` is blocked by the execution policy):
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.venv\Scripts\activate
-python main.py
-```
-
-**Manual install (if winget is unavailable):**
-
-- Install Python 3.10+ from python.org
-- Install ffmpeg and add to PATH
-- Install MKVToolNix and add to PATH
-- Create venv and install deps:
-
-```powershell
-python -m venv .venv
-Set-ExecutionPolicy -Scope Process Bypass
-.venv\Scripts\activate
-pip install PyQt6 requests guessit
-python main.py
-```
-
-**Notes:**
-
-- TUI (`poster-tui`) and CLI (`cli.py`) are not supported on Windows.
-- The GUI works identically to Linux — drag-and-drop, folder scan, metadata embed all function the same.
-- Windows File Explorer shows cover art only for MP4/MOV (`attached_pic`). Posters attached to MKV/WebM won't appear in Explorer thumbnails — a Microsoft limitation; VLC, Plex, and Jellyfin display them normally.
 
 ### Uninstall
 
@@ -206,7 +172,7 @@ mak-attatch
 4. **Pick a poster:** Double-click a result, browse posters, click to preview.
 5. **Attach:** Hit **Attach Poster**.
 
-**Folder Scan (Ctrl+F):** Pick a directory. mak-attatch recursively scans, groups files by title/season, auto-matches TMDB entries, and shows a review list. Hit **Attach All** to process everything. Toggle **Embed metadata** to write tags, or **Convert MP4 to MKV** for a lossless remux.
+**Folder Scan (Ctrl+F):** Pick a directory. mak-attatch recursively scans (skipping extras such as featurettes, trailers and samples), groups files by title/season, auto-matches TMDB entries, and shows a review list. Groups whose closest TMDB result doesn't match the title are listed as unmatched for you to review. Hit **Attach All** to process everything. Toggle **Embed metadata** to write tags, or **Convert MP4 to MKV** for a lossless remux.
 
 ### Terminal TUI
 
@@ -232,8 +198,11 @@ mak-attatch-cli attach -f movie.mkv -p poster.jpg
 mak-attatch-cli attach -f "Show S01E01.mkv"           # query derived from filename
 mak-attatch-cli remove -f movie.mkv                   # remove poster (default)
 mak-attatch-cli remove -f movie.mkv --metadata-only   # remove metadata only
-mak-attatch-cli scan ~/Videos --skip-existing --embed-metadata
+mak-attatch-cli scan ~/Videos --embed-metadata
+mak-attatch-cli scan ~/Videos --no-skip-existing      # also replace existing posters
 ```
+
+Folder scans skip files that already have a poster unless you pass `--no-skip-existing`. They also skip extras: `Featurettes`, `Behind The Scenes`, `Trailers` and `Sample(s)` folders, plus `-trailer`/`-sample` files. A TMDB result is only used when its title actually matches the file; anything else is reported as unmatched instead of getting a random poster. In a multi-file `attach`, a file that can't be matched is reported and skipped without stopping the rest.
 
 Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadata scraping, and folder scans. Attaching a local poster with `-p` does not need a key. Attach and scan fail fast with a clear message if a required tool (ffmpeg/mkvtoolnix) is missing.
 
@@ -260,7 +229,8 @@ Requires a configured TMDB API key (see [API Key](#api-key)) for search, metadat
 |-----|--------|
 | `Ctrl+O` | Open files |
 | `Ctrl+F` | Scan folder |
-| `Ctrl+A` | Attach poster |
+| `Ctrl+Return` | Attach poster |
+| `Esc` | Cancel the running operation (after the current file) |
 
 ---
 
@@ -358,9 +328,10 @@ sudo apt install python3 python3-pyqt6 python3-requests python3-guessit ffmpeg m
 sudo apt install python3-textual chafa  # TUI extras
 ```
 
-yazi is not in the default repos — enable its apt repo first:
+yazi is not in the default repos — enable its apt repo first (the keyring is checked before the source is added, so a failed download can't break `apt update`):
 ```bash
-curl -fsSL https://yazi-rs.github.io/builds/yazi-keyring.gpg | sudo tee /usr/share/keyrings/yazi-keyring.gpg >/dev/null
+tmp=$(mktemp) && curl -fsSL https://yazi-rs.github.io/builds/yazi-keyring.gpg -o "$tmp" && test -s "$tmp" \
+  && sudo install -m 644 "$tmp" /usr/share/keyrings/yazi-keyring.gpg && rm -f "$tmp"
 echo 'deb [signed-by=/usr/share/keyrings/yazi-keyring.gpg] https://yazi-rs.github.io/builds/ stable main' | sudo tee /etc/apt/sources.list.d/yazi.list >/dev/null
 sudo apt update && sudo apt install yazi
 ```
@@ -378,42 +349,41 @@ sudo dnf install python3-textual chafa yazi  # TUI extras
 
 ```
 mak-attatch/
-├── main.py              # Desktop GUI entry point
-├── poster-tui           # Terminal TUI entry point
-├── cli.py               # Headless CLI entry point (mak-attatch-cli)
-├── poster_tui/          # TUI application code
-│   ├── __init__.py
-│   └── app.py
-├── ui/                  # PyQt6 desktop GUI widgets
-├── core/                # Shared core modules
-│   ├── tmdb.py          # TMDB API client
-│   ├── attacher.py      # MKV/MP4 attachment engine
-│   ├── parser.py        # Filename title extraction
-│   ├── scanner.py       # Recursive folder scan & grouping
-│   ├── autoattach.py    # Title matching & bulk attach
-│   └── deps.py          # Distro-aware dependency detection & install hints
-├── config.py            # Configuration management
-├── convert.sh           # Standalone bash utility (single file)
-├── requirements.txt     # Python dependencies
+├── mak_attatch/             # The application package (all code lives here)
+│   ├── main.py              # Desktop GUI entry point (mak-attatch)
+│   ├── cli.py               # Headless CLI (mak-attatch-cli)
+│   ├── config.py            # Configuration management
+│   ├── poster_tui/          # Terminal UI (mak-attatch-tui)
+│   ├── ui/                  # PyQt6 desktop GUI widgets
+│   ├── core/                # Shared core modules
+│   │   ├── tmdb.py          # TMDB API client + title matching
+│   │   ├── attacher.py      # MKV/MP4 attachment engine
+│   │   ├── parser.py        # Filename title extraction
+│   │   ├── scanner.py       # Recursive folder scan & grouping
+│   │   ├── autoattach.py    # Bulk resolve & attach
+│   │   └── deps.py          # Distro-aware dependency detection & install hints
+│   └── assets/              # Logo and app icon
+├── main.py, cli.py, poster-tui   # Run-from-checkout launchers
+├── convert.sh           # Interactive single-file helper (wraps the CLI)
+├── requirements.txt     # Pinned Python dependencies
 ├── setup.sh             # Linux/macOS setup
-├── setup.ps1            # Windows setup (GUI only)
 ├── PKGBUILD             # Arch Linux package build
 ├── Makefile             # Install/uninstall targets
-├── tests/               # Test suite (151 tests; GUI/TUI need PyQt6/textual)
-│   ├── test_attacher.py
-│   ├── test_autoattach.py
-│   ├── test_cli.py
-│   ├── test_config.py
-│   ├── test_deps.py
-│   ├── test_hotfixes.py
-│   ├── test_scanner.py
-│   └── test_tmdb.py
-└── assets/              # Logos and screenshots
+├── tests/               # Test suite (GUI/TUI tests need PyQt6/textual)
+└── assets/showcase/     # Screenshots and demo videos
 ```
 
 ---
 
 ## Changelog
+
+### Unreleased
+- **Fixed** data-safety bugs: TUI deleted the user's own image; MP4/MOV metadata writes wiped audio/subtitle languages and chapter titles; MOV/M4V metadata editing failed; TV metadata overwrote episode titles; unverified rewrites could replace an original with a truncated file; editing hardlinked MKVs changed the seeding copy.
+- **Fixed** the TMDB API key could appear in error messages.
+- **Fixed** wrong-poster bulk matches: titles must actually match, extras are skipped, and existing posters are kept by default.
+- **Fixed** GUI Ctrl+A attached to every file (now Ctrl+Return); one operation at a time with a Cancel button; selection survives refreshes; no crash on unexpected errors.
+- **Fixed** GUI/TUI freezes (poster checks, thumbnails, dialogs), TUI crashes on markup-like names, mixed-up results from fast clicks, and a corrupt config wiping the API key.
+- **Changed** packaging: all code is in the `mak_attatch` package (no more generic top-level `config`/`core`/`ui` modules), plus a `mak-attatch-tui` entry point. See [CHANGELOG.md](CHANGELOG.md) for details.
 
 ### v1.3.5 — 2026-10-20
 - **Fixed** Poster cache invalidation: paths are normalized before dropping entries, so relative, symlinked, and non-normalized paths refresh correctly.

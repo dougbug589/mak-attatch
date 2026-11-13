@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from core import tmdb
+from mak_attatch.core import tmdb
 
 
 class _FakeResp:
@@ -23,8 +23,8 @@ def _result(media_id, name, date, media_type=""):
 
 class SearchTest(unittest.TestCase):
     def test_scoped_tv_search_sets_media_type(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({
                 "results": [_result(1, "Breaking Bad", "2008-01-20")],
             })
@@ -35,8 +35,8 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(results[0]["year"], "2008")
 
     def test_scoped_movie_search_sets_media_type(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({
                 "results": [_result(2, "Inception", "2010-07-16")],
             })
@@ -45,8 +45,8 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(results[0]["year"], "2010")
 
     def test_multi_search_keeps_provided_media_type(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({
                 "results": [
                     _result(1, "Show", "2008-01-20", media_type="tv"),
@@ -60,8 +60,8 @@ class SearchTest(unittest.TestCase):
         )
 
     def test_year_parsed_from_query(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({"results": []})
             tmdb.search("The Godfather (1972)", "movie")
         url, params = fetch.call_args.args[0], fetch.call_args.kwargs["params"]
@@ -70,8 +70,8 @@ class SearchTest(unittest.TestCase):
         self.assertIn("search/movie", url)
 
     def test_numeric_title_is_not_stripped(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({"results": []})
             tmdb.search("1917", "movie")
         params = fetch.call_args.kwargs["params"]
@@ -79,8 +79,8 @@ class SearchTest(unittest.TestCase):
         self.assertNotIn("year", params)
 
     def test_trailing_number_stays_in_title(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({"results": []})
             tmdb.search("Blade Runner 2049", "movie")
         params = fetch.call_args.kwargs["params"]
@@ -88,8 +88,8 @@ class SearchTest(unittest.TestCase):
         self.assertNotIn("year", params)
 
     def test_numeric_title_with_parenthesised_year(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({"results": []})
             tmdb.search("1917 (2019)", "movie")
         params = fetch.call_args.kwargs["params"]
@@ -97,8 +97,8 @@ class SearchTest(unittest.TestCase):
         self.assertEqual(params.get("year"), "2019")
 
     def test_tv_search_uses_first_air_date_year(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({"results": []})
             tmdb.search("Breaking Bad (2008)", "tv")
         params = fetch.call_args.kwargs["params"]
@@ -107,8 +107,8 @@ class SearchTest(unittest.TestCase):
         self.assertNotIn("year", params)
 
     def test_multi_search_narrows_by_year(self):
-        with mock.patch("core.tmdb._fetch") as fetch, \
-             mock.patch("core.tmdb.config.get", return_value="k" * 32):
+        with mock.patch("mak_attatch.core.tmdb._fetch") as fetch, \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value="k" * 32):
             fetch.return_value = _FakeResp({
                 "results": [
                     _result(1, "Dune", "1984-12-14", media_type="movie"),
@@ -135,8 +135,8 @@ class FetchRedirectTest(unittest.TestCase):
         mock_session = MagicMock()
         mock_session.get.side_effect = [redirect_resp, final_resp]
 
-        with mock.patch("core.tmdb._get_session", return_value=mock_session), \
-             mock.patch("core.tmdb._validate_url"):
+        with mock.patch("mak_attatch.core.tmdb._get_session", return_value=mock_session), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"):
             result = tmdb._fetch("https://image.tmdb.org/p/w500/old.jpg")
 
         self.assertEqual(mock_session.get.call_count, 2)

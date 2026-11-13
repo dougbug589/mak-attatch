@@ -5,9 +5,13 @@
 If you find a security vulnerability, please report it responsibly:
 
 1. **Do not** open a public GitHub issue
-2. Email or DM the maintainer directly
+2. Report it privately via GitHub: [Report a vulnerability](https://github.com/dougbug589/mak-attatch/security/advisories/new)
 3. Include steps to reproduce the issue
 4. Allow reasonable time for a fix before public disclosure
+
+## Supported Versions
+
+Security fixes go into the latest release only. Please update before reporting.
 
 ## Scope
 

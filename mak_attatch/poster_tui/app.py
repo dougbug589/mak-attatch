@@ -6,13 +6,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 import requests
+from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.content import Content
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
@@ -28,9 +29,9 @@ from textual.widgets import (
     Static,
 )
 
-import config
-from config import VERSION
-from core import attacher, autoattach, deps, parser, scanner, tmdb
+from mak_attatch import config
+from mak_attatch.config import VERSION
+from mak_attatch.core import attacher, autoattach, deps, parser, scanner, tmdb
 
 # Exceptions these operations can legitimately raise; anything else is a bug
 # and should propagate instead of being swallowed.
@@ -165,7 +166,7 @@ class PosterTuiApp(App):
         with Vertical(id="mid_col"):
             yield Label("Posters:", id="poster_label")
             yield ListView(id="poster_gallery")
-            yield Label("", id="preview_info")
+            yield Label("", id="preview_info", markup=False)
         with Vertical(id="right_col"):
             yield Label("Video Files:", id="files_label")
             yield ListView(id="file_list")
@@ -186,7 +187,8 @@ class PosterTuiApp(App):
                 yield Button("Scrape", id="scrape_meta_btn")
                 yield Checkbox("Scrape metadata", id="meta_check")
             yield ProgressBar(id="progress", show_eta=False)
-            yield Label("Ready", id="status")
+            # Filenames/titles/errors go here; "[SubsPlease]" is not markup.
+            yield Label("Ready", id="status", markup=False)
         yield Footer()
 
     def __init__(self):
@@ -200,6 +202,13 @@ class PosterTuiApp(App):
         self.current_media: dict | None = None
         self._yazi_chooser: str | None = None
         self._poster_gen = 0
+        self._search_gen = 0
+        self._poster_req = 0
+        self._probe_gen = 0
+        # One file-writing job at a time: two batches editing the same files
+        # concurrently can corrupt MKVs (mkvpropedit does no locking) or
+        # silently undo each other's MP4 rewrites.
+        self._busy = False
 
     def on_mount(self):
         if not config.get("tmdb_api_key"):
@@ -255,12 +264,12 @@ class PosterTuiApp(App):
         os.close(fd)
         self._yazi_chooser = chooser
         try:
-            proc = subprocess.run(
-                ["yazi", "--chooser-file", chooser, "--", start_dir],
-                timeout=300,
-            )
+            # No timeout: yazi is interactive, and killing it mid-session left
+            # the terminal in yazi's screen and crashed the app.
+            proc = subprocess.run(["yazi", "--chooser-file", chooser, "--", start_dir])
             if proc.returncode == 0 and os.path.exists(chooser):
-                return Path(chooser).read_text().strip()
+                # File names are bytes on Linux; keep undecodable ones usable.
+                return Path(chooser).read_text(errors="surrogateescape").strip()
             return None
         finally:
             try:
@@ -293,12 +302,21 @@ class PosterTuiApp(App):
         if p in self.video_paths:
             self.query_one("#status").update(f"Already added: {Path(p).name}")
             return
+        if not self.video_paths:
+            self._reset_poster_choice()
         self._append_file_rows([p])
         config.set("last_dir", str(Path(p).parent))
         if len(self.video_paths) == 1:
             parsed = parser.parse_filename(p)
             self.query_one("#search_input").value = parser.build_search_query(parsed)
             self.action_search()
+
+    def _reset_poster_choice(self):
+        """A new file list must not inherit the previous title's poster."""
+        self.selected_poster = None
+        self.local_poster_path = None
+        self.current_media = None
+        self.query_one("#attach_btn").disabled = True
 
     def _append_file_rows(self, paths: list[str]) -> int:
         added = 0
@@ -308,17 +326,42 @@ class PosterTuiApp(App):
                 continue
             self.video_paths.append(p)
             idx = len(self.video_paths) - 1
-            row = ListItem(FileCheckbox(Path(p).name, id=f"file_cb_{idx}"), id=f"file_row_{idx}")
+            row = ListItem(FileCheckbox(Content(Path(p).name), id=f"file_cb_{idx}"),
+                           id=f"file_row_{idx}")
             self.query_one("#file_list").append(row)
             added += 1
         self.query_one("#files_label").update(f"Video Files ({len(self.video_paths)}):")
         return added
 
     def _refresh_file_glyphs(self):
+        # Cached answers show at once; the rest are probed in a worker (one
+        # mkvmerge/ffprobe per file used to block the UI).
+        unknown = []
         for i, p in enumerate(self.video_paths):
-            has = scanner.has_poster(p)
-            checkbox = self.query_one(f"#file_cb_{i}")
-            checkbox.label = ("✓ " + Path(p).name) if has else Path(p).name
+            has = scanner.cached_has_poster(p)
+            if has is None:
+                unknown.append((i, p))
+            self._set_glyph(i, p, bool(has))
+        if unknown:
+            self._probe_gen += 1
+            self._probe_posters(unknown, self._probe_gen)
+
+    def _set_glyph(self, index: int, path: str, has: bool):
+        try:
+            checkbox = self.query_one(f"#file_cb_{index}")
+        except NoMatches:
+            return
+        name = Path(path).name
+        checkbox.label = Content(("✓ " + name) if has else name)
+
+    @work(thread=True)
+    def _probe_posters(self, items: list, gen: int):
+        for index, path in items:
+            if gen != self._probe_gen:
+                return
+            has = scanner.has_poster(path)
+            if gen == self._probe_gen:
+                self.call_from_thread(self._set_glyph, index, path, has)
 
     def _set_progress(self, current: int, total: int):
         progress = self.query_one("#progress")
@@ -358,7 +401,7 @@ class PosterTuiApp(App):
                 )
 
             groups = scanner.classify(files)
-            delay = config.get("scan_api_delay") or 0.25
+            delay = config.get("scan_api_delay")
             resolved = autoattach.resolve_groups(groups, api_delay=delay, progress=cb)
             self.call_from_thread(self._on_scan_resolved, resolved)
         except (tmdb.TMDBError, requests.RequestException, ValueError,
@@ -386,6 +429,8 @@ class PosterTuiApp(App):
             _, entries, embed_meta = result
             paths = [p for e in entries for p in e["group"].files]
             self._append_file_rows(paths)
+            if not self._begin_job():
+                return
             self.query_one("#status").update(f"Attaching posters to {len(paths)} files...")
             self._do_auto_attach(entries, scrape_metadata=embed_meta)
 
@@ -395,7 +440,7 @@ class PosterTuiApp(App):
     def _do_auto_attach(self, entries: list, scrape_metadata: bool = False):
         try:
             skip = config.get("scan_skip_existing")
-            delay = config.get("scan_api_delay") or 0.25
+            delay = config.get("scan_api_delay")
             to_mkv = bool(config.get("convert_to_mkv"))
 
             def cb(done, total, filepath, status):
@@ -410,12 +455,15 @@ class PosterTuiApp(App):
                 api_delay=delay, to_mkv=to_mkv, progress=cb,
             )
             self.call_from_thread(self._on_auto_attach_done, summary)
-        except (tmdb.TMDBError, requests.RequestException, ValueError,
-                OSError) as e:
+        except OPERATION_ERRORS as e:
             msg = f"Auto-attach failed: {e}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
+        finally:
+            self.call_from_thread(self._end_job)
 
     def _on_auto_attach_done(self, summary: dict):
+        if summary.get("converted"):
+            self._apply_conversions(summary["converted"])
         self._refresh_file_glyphs()
         ok, fail, skipped = summary["ok"], summary["fail"], summary["skipped"]
         msg = f"Auto-attach: {ok} ok, {skipped} skipped, {fail} failed"
@@ -544,7 +592,51 @@ class PosterTuiApp(App):
     def _targets(self) -> list[str]:
         if self.selected_files:
             return sorted(self.selected_files)
-        return self.video_paths
+        return list(self.video_paths)
+
+    def _begin_job(self) -> bool:
+        if self._busy:
+            self.query_one("#status").update(
+                "Another operation is still running — wait for it to finish"
+            )
+            return False
+        self._busy = True
+        return True
+
+    def _end_job(self):
+        self._busy = False
+
+    def _confirm_then(self, action: str, targets: list[str], run) -> None:
+        """Ask before a destructive batch, spelling out when it hits ALL files."""
+        if self._busy:
+            self._begin_job()  # shows the "still running" message
+            return
+        targets = list(targets)
+        if self.selected_files:
+            scope = f"{len(targets)} selected file(s)"
+        else:
+            scope = f"ALL {len(targets)} loaded file(s) — nothing is selected"
+
+        def done(confirmed: bool | None):
+            if confirmed and self._begin_job():
+                run(targets)
+
+        self.push_screen(ConfirmScreen(f"{action} on {scope}?"), callback=done)
+
+    async def action_quit(self) -> None:
+        if not self._busy:
+            self.exit()
+            return
+
+        def done(confirmed: bool | None):
+            if confirmed:
+                self.exit()
+
+        self.push_screen(
+            ConfirmScreen("An operation is still running. Quit anyway? "
+                          "The file being processed right now may be left unfinished."),
+            callback=done,
+        )
 
     @on(Button.Pressed, "#local_img_btn")
     def on_local_image(self):
@@ -564,7 +656,8 @@ class PosterTuiApp(App):
         self.local_poster_path = path
         self.selected_poster = None
         self.query_one("#status").update(f"Local image: {Path(path).name}")
-        self._preview_native(path)
+        # The user's own file: preview it, never delete it.
+        self._preview_native(path, owned=False)
         self.query_one("#attach_btn").disabled = False
 
     @staticmethod
@@ -617,14 +710,20 @@ class PosterTuiApp(App):
             return "sixel"
         return "symbols"
 
-    def _preview_native(self, path: str, info: str = ""):
+    def _preview_native(self, path: str, info: str = "", owned: bool = True):
+        """Draw an image preview; delete it afterwards only if we own it.
+
+        owned=True is for temp files downloaded for the preview. A local image
+        picked by the user must pass owned=False, or it would be deleted.
+        """
         try:
             self._draw_preview(path, info)
         finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+            if owned:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
             self._update_selection_status()
 
     def _draw_preview(self, path: str, info: str):
@@ -675,13 +774,15 @@ class PosterTuiApp(App):
             self.query_one("#status").update("No API key set. Press Settings.")
             return
         self.query_one("#status").update("Searching...")
-        self._do_search(query)
+        self._search_gen += 1
+        self._do_search(query, self._search_gen)
 
     @work(thread=True)
-    def _do_search(self, query: str):
+    def _do_search(self, query: str, gen: int):
         try:
             results = tmdb.search(query)
-            self.call_from_thread(self._on_search_done, results)
+            if gen == self._search_gen:  # a newer search supersedes this one
+                self.call_from_thread(self._on_search_done, results)
         except (tmdb.TMDBError, requests.RequestException, ValueError,
                 OSError) as e:
             self.call_from_thread(self._on_search_error, str(e))
@@ -691,7 +792,7 @@ class PosterTuiApp(App):
         self.query_one("#results_list").clear()
         for r in results:
             label = f"{r['title']} ({r['year']}) [{r['media_type']}]"
-            self.query_one("#results_list").append(ListItem(Label(label)))
+            self.query_one("#results_list").append(ListItem(Label(label, markup=False)))
         self.query_one("#results_label").update(f"Results ({len(results)}):")
         self.query_one("#status").update(f"Found {len(results)} results")
 
@@ -706,13 +807,16 @@ class PosterTuiApp(App):
         data = self.results[idx]
         self.current_media = {"id": data["id"], "media_type": data["media_type"]}
         self.query_one("#status").update(f"Loading posters for {data['title']}...")
-        self._load_posters(data["id"], data["media_type"])
+        self._poster_req += 1
+        self._load_posters(data["id"], data["media_type"], self._poster_req)
 
     @work(thread=True)
-    def _load_posters(self, media_id: int, media_type: str):
+    def _load_posters(self, media_id: int, media_type: str, req: int):
         try:
             posters = tmdb.get_posters(media_id, media_type)
-            self.call_from_thread(self._on_posters_loaded, posters)
+            # Clicking result A then B must never show A's posters for B.
+            if req == self._poster_req:
+                self.call_from_thread(self._on_posters_loaded, posters)
         except (tmdb.TMDBError, requests.RequestException, ValueError,
                 OSError) as e:
             self.call_from_thread(self._on_search_error, str(e))
@@ -729,6 +833,7 @@ class PosterTuiApp(App):
                 ListItem(
                     Label(
                         f"{p['width']}x{p['height']} [{p.get('lang') or '??'}]",
+                        markup=False,
                     ),
                     id=f"cell_{gen}_{idx}",
                 )
@@ -760,12 +865,11 @@ class PosterTuiApp(App):
     def _show_image_preview(self, url: str, info: str):
         tmp = None
         try:
-            resp = tmdb._fetch(url)
             fd, tmp = tempfile.mkstemp(suffix=".jpg")
             os.close(fd)
-            with open(tmp, "wb") as f:
-                f.write(resp.content)
             os.chmod(tmp, 0o600)
+            # Same host, size and image-type checks as poster downloads.
+            tmdb.download_image(url, tmp)
             # The temp file is deleted by _preview_native once it has drawn it,
             # so the GUI thread never races the worker's cleanup.
             self.call_from_thread(self._preview_native, tmp, info)
@@ -785,31 +889,47 @@ class PosterTuiApp(App):
         if not self.selected_poster and not self.local_poster_path:
             self.query_one("#status").update("No poster selected")
             return
-        # Read widget state on the GUI thread; the worker only sees plain data.
-        self._do_attach(self._targets(), self.query_one("#meta_check").value)
+        # Snapshot everything on the UI thread; the worker only sees plain
+        # data, so changing the selection mid-batch cannot redirect it (and
+        # ownership of the poster file is decided here, not at the end).
+        targets = list(self._targets())
+        poster_url = None if self.local_poster_path else self.selected_poster["url"]
+        local_path = self.local_poster_path
+        media = dict(self.current_media) if self.current_media else None
+        scrape = self.query_one("#meta_check").value
+
+        def run():
+            self._do_attach(targets, scrape, poster_url, local_path, media)
+
+        if self.selected_files or len(targets) == 1:
+            if self._begin_job():
+                run()
+        else:
+            self._confirm_then("Attach this poster", targets, run)
 
     @work(thread=True)
-    def _do_attach(self, targets: list[str], scrape_metadata: bool):
+    def _do_attach(self, targets: list[str], scrape_metadata: bool,
+                   poster_url: str | None, local_path: str | None,
+                   media: dict | None):
         poster_path = None
-        metadata = None
+        owned = local_path is None  # only ever delete a file we downloaded
         to_mkv = bool(config.get("convert_to_mkv"))
         conversions: dict[str, str] = {}
         try:
-            if self.local_poster_path:
-                poster_path = self.local_poster_path
+            if local_path:
+                poster_path = local_path
             else:
                 fd, poster_path = tempfile.mkstemp(suffix=".jpg")
                 os.close(fd)
                 os.chmod(poster_path, 0o600)
-                tmdb.download_image(self.selected_poster["url"], poster_path)
+                tmdb.download_image(poster_url, poster_path)
 
-            if scrape_metadata and self.current_media:
+            metadata = None
+            if scrape_metadata and media:
                 self.call_from_thread(
                     lambda: self.query_one("#status").update("Scraping metadata...")
                 )
-                metadata = tmdb.get_details(
-                    self.current_media["id"], self.current_media["media_type"]
-                )
+                metadata = tmdb.get_details(media["id"], media["media_type"])
 
             total = len(targets)
             ok = 0
@@ -848,160 +968,155 @@ class PosterTuiApp(App):
             msg = f"Error: {e}"
             self.call_from_thread(lambda: self.query_one("#status").update(msg))
         finally:
-            if poster_path and poster_path != self.local_poster_path:
+            if owned and poster_path:
                 try:
                     os.unlink(poster_path)
                 except OSError:
                     pass
+            self.call_from_thread(self._end_job)
 
     def _apply_conversions(self, conversions: dict[str, str]):
         for old, new in conversions.items():
             if old in self.video_paths:
                 self.video_paths[self.video_paths.index(old)] = new
+            # Keep the selection pointing at the new MKV, not the original
+            # (which still exists), so later operations hit the right file.
+            if old in self.selected_files:
+                self.selected_files.discard(old)
+                self.selected_files.add(new)
         self._refresh_file_glyphs()
+
+    def _run_batch(self, targets: list[str], verb: str, fn) -> tuple[int, int, list[str]]:
+        """Apply fn to each target with progress; returns (ok, fail, errors)."""
+        total = len(targets)
+        ok = 0
+        fail = 0
+        errors: list[str] = []
+        self.call_from_thread(self._set_progress, 0, total)
+        for i, path in enumerate(targets):
+            self.call_from_thread(
+                lambda i=i, p=path: self.query_one("#status").update(
+                    f"{verb} {i+1}/{total}: {Path(p).name}"
+                )
+            )
+            self.call_from_thread(self._set_progress, i + 1, total)
+            try:
+                fn(path)
+                ok += 1
+            except OPERATION_ERRORS as e:
+                fail += 1
+                errors.append(f"{Path(path).name}: {e}")
+        return ok, fail, errors
 
     @on(Button.Pressed, "#remove_btn")
     def on_remove(self):
         if not self.video_paths:
             self.query_one("#status").update("No video files loaded")
             return
-        self._do_remove()
+        self._confirm_then("Remove posters", self._targets(), self._do_remove)
 
     @work(thread=True)
-    def _do_remove(self):
-        total = len(self._targets())
-        ok = 0
-        fail = 0
-        self.call_from_thread(self._set_progress, 0, total)
-        for i, path in enumerate(self._targets()):
-            self.call_from_thread(
-                lambda i=i, p=path: self.query_one("#status").update(
-                    f"Removing {i+1}/{total}: {Path(p).name}"
-                )
-            )
-            self.call_from_thread(self._set_progress, i + 1, total)
-            try:
-                attacher.remove_poster(path)
-                ok += 1
-            except OPERATION_ERRORS:
-                fail += 1
-        msg = f"Removed from {ok} file(s)" if fail == 0 else f"Removed: {ok}, Failed: {fail}"
-        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+    def _do_remove(self, targets: list[str]):
+        try:
+            ok, fail, errors = self._run_batch(targets, "Removing", attacher.remove_poster)
+            if fail == 0:
+                msg = f"Removed from {ok} file(s)"
+            else:
+                msg = f"Removed: {ok}, Failed: {fail} — {errors[0]}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
+            self.call_from_thread(self._refresh_file_glyphs)
+        finally:
+            self.call_from_thread(self._end_job)
 
     @on(Button.Pressed, "#remove_meta_btn")
     def on_remove_metadata(self):
         if not self.video_paths:
             self.query_one("#status").update("No video files loaded")
             return
-        self._do_remove_metadata()
+        self._confirm_then("Remove all metadata", self._targets(), self._do_remove_metadata)
 
     @work(thread=True)
-    def _do_remove_metadata(self):
-        total = len(self._targets())
-        ok = 0
-        fail = 0
-        self.call_from_thread(self._set_progress, 0, total)
-        for i, path in enumerate(self._targets()):
-            self.call_from_thread(
-                lambda i=i, p=path: self.query_one("#status").update(
-                    f"Removing metadata {i+1}/{total}: {Path(p).name}"
-                )
+    def _do_remove_metadata(self, targets: list[str]):
+        try:
+            ok, fail, errors = self._run_batch(
+                targets, "Removing metadata", attacher.remove_metadata
             )
-            self.call_from_thread(self._set_progress, i + 1, total)
-            try:
-                attacher.remove_metadata(path)
-                ok += 1
-            except OPERATION_ERRORS:
-                fail += 1
-        if fail == 0:
-            msg = f"Removed metadata from {ok} file(s)"
-        else:
-            msg = f"Removed metadata: {ok}, Failed: {fail}"
-        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+            if fail == 0:
+                msg = f"Removed metadata from {ok} file(s)"
+            else:
+                msg = f"Removed metadata: {ok}, Failed: {fail} — {errors[0]}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
+        finally:
+            self.call_from_thread(self._end_job)
 
     @on(Button.Pressed, "#convert_btn")
     def on_convert(self):
         if not self.video_paths:
             self.query_one("#status").update("No video files loaded")
             return
-        self._do_convert()
+        # Convert keeps the originals, so it needs no confirmation, only the
+        # single-job guard.
+        if self._begin_job():
+            self._do_convert(list(self._targets()))
 
     @work(thread=True)
-    def _do_convert(self):
-        total = len(self._targets())
-        ok = 0
-        fail = 0
+    def _do_convert(self, targets: list[str]):
         conversions: dict[str, str] = {}
-        first_error = None
-        self.call_from_thread(self._set_progress, 0, total)
-        for i, path in enumerate(self._targets()):
-            self.call_from_thread(
-                lambda i=i, p=path: self.query_one("#status").update(
-                    f"Converting {i+1}/{total}: {Path(p).name}"
+
+        def convert(path: str):
+            out = attacher.remux_to_mkv(path)
+            if out != path:
+                conversions[path] = out
+
+        try:
+            ok, fail, errors = self._run_batch(targets, "Converting", convert)
+            if conversions:
+                self.call_from_thread(self._apply_conversions, conversions)
+            if fail == 0:
+                msg = f"Converted {ok} file(s) to MKV"
+            else:
+                msg = f"Converted: {ok}, Skipped/Failed: {fail} — {errors[0]}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
+            if fail:
+                self.call_from_thread(
+                    lambda: self.notify(f"{fail} file(s) not converted — {errors[0]}",
+                                        severity="warning", markup=False)
                 )
-            )
-            self.call_from_thread(self._set_progress, i + 1, total)
-            try:
-                out = attacher.remux_to_mkv(path)
-                if out != path:
-                    conversions[path] = out
-                ok += 1
-            except OPERATION_ERRORS as e:
-                fail += 1
-                if first_error is None:
-                    first_error = f"{Path(path).name}: {e}"
-        if conversions:
-            self.call_from_thread(self._apply_conversions, conversions)
-        if fail == 0:
-            msg = f"Converted {ok} file(s) to MKV"
-        elif first_error:
-            msg = f"Converted: {ok}, Skipped/Failed: {fail} — {first_error}"
-        else:
-            msg = f"Converted: {ok}, Skipped/Failed: {fail}"
-        self.call_from_thread(lambda: self.query_one("#status").update(msg))
-        if fail:
-            self.call_from_thread(
-                lambda: self.notify(f"{fail} file(s) not converted — {first_error}",
-                                    severity="warning")
-            )
-        else:
-            self.call_from_thread(lambda: self.notify(f"Converted {ok} file(s) to MKV"))
+            else:
+                self.call_from_thread(lambda: self.notify(f"Converted {ok} file(s) to MKV"))
+        finally:
+            self.call_from_thread(self._end_job)
 
     @on(Button.Pressed, "#scrape_meta_btn")
     def on_scrape_metadata(self):
         if not self.video_paths:
             self.query_one("#status").update("No video files loaded")
             return
-        self._do_scrape_metadata()
+        targets = list(self._targets())
+        # The selected search result only describes a single file. A batch
+        # must resolve each filename on its own (same rule as the GUI);
+        # otherwise one title's metadata would be written to every file.
+        media = dict(self.current_media) if self.current_media and len(targets) == 1 else None
+        self._confirm_then(
+            "Overwrite metadata", targets,
+            lambda t: self._do_scrape_metadata(t, media),
+        )
 
     @work(thread=True)
-    def _do_scrape_metadata(self):
-        targets = self._targets()
-        total = len(targets)
-        ok = 0
-        fail = 0
-        errors = []
-        self.call_from_thread(self._set_progress, 0, total)
-        for i, path in enumerate(targets):
-            self.call_from_thread(
-                lambda i=i, p=path: self.query_one("#status").update(
-                    f"Scraping metadata {i+1}/{total}: {Path(p).name}"
-                )
-            )
-            self.call_from_thread(self._set_progress, i + 1, total)
-            try:
-                metadata = tmdb.details_for_path(path, self.current_media)
-                attacher.write_metadata(path, metadata)
-                ok += 1
-            except OPERATION_ERRORS as e:
-                fail += 1
-                errors.append(f"{Path(path).name}: {e}")
-        if fail == 0:
-            msg = f"Metadata written to {ok} file(s)"
-        else:
-            detail = " | ".join(errors)[:2000]
-            msg = f"Metadata: {ok} ok, {fail} failed — {detail}"
-        self.call_from_thread(lambda: self.query_one("#status").update(msg))
+    def _do_scrape_metadata(self, targets: list[str], media: dict | None):
+        def scrape(path: str):
+            attacher.write_metadata(path, tmdb.details_for_path(path, media))
+
+        try:
+            ok, fail, errors = self._run_batch(targets, "Scraping metadata", scrape)
+            if fail == 0:
+                msg = f"Metadata written to {ok} file(s)"
+            else:
+                detail = " | ".join(errors)[:2000]
+                msg = f"Metadata: {ok} ok, {fail} failed — {detail}"
+            self.call_from_thread(lambda: self.query_one("#status").update(msg))
+        finally:
+            self.call_from_thread(self._end_job)
 
     @on(Button.Pressed, "#settings_btn")
     def on_settings(self):
@@ -1031,7 +1146,7 @@ class SettingsScreen(Screen):
             )
             yield Label("API delay between lookups (seconds)")
             yield Input(
-                value=str(config.get("scan_api_delay") or 0.25),
+                value=str(config.get("scan_api_delay")),
                 placeholder="0.25",
                 id="api_delay_input",
             )
@@ -1042,11 +1157,14 @@ class SettingsScreen(Screen):
     @on(Button.Pressed, "#save_btn")
     def on_save(self):
         key = self.query_one("#api_key_input").value.strip()
-        try:
-            config.set("tmdb_api_key", key)
-        except ValueError:
-            self.notify("Invalid API key (10-500 characters)", severity="error")
-            return
+        env_key = os.environ.get(config.API_KEY_ENV, "").strip()
+        if not (env_key and key == env_key):
+            # A key from the environment must never be written to disk.
+            try:
+                config.set("tmdb_api_key", key)
+            except ValueError:
+                self.notify("Invalid API key (10-500 characters)", severity="error")
+                return
         config.set("scan_skip_existing", self.query_one("#skip_existing_check").value)
         config.set("convert_to_mkv", self.query_one("#convert_mkv_check").value)
         try:
@@ -1060,6 +1178,60 @@ class SettingsScreen(Screen):
     @on(Button.Pressed, "#cancel_btn")
     def on_cancel(self):
         self.dismiss()
+
+
+class ConfirmScreen(ModalScreen[bool]):
+    """Yes/No confirmation for destructive or all-files operations."""
+
+    BINDINGS = [
+        Binding("y", "answer(True)", "Yes"),
+        Binding("n", "answer(False)", "No"),
+        Binding("escape", "answer(False)", "Cancel"),
+    ]
+
+    CSS = """
+    ConfirmScreen {
+        align: center middle;
+    }
+    #confirm_box {
+        width: 70;
+        height: auto;
+        border: thick $warning;
+        padding: 1 2;
+        background: $surface;
+    }
+    #confirm_buttons {
+        height: auto;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, message: str):
+        super().__init__()
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm_box"):
+            # markup=False: file counts are safe, but keep any future text
+            # (titles, paths) from being interpreted as Textual markup.
+            yield Static(self.message, markup=False)
+            with Horizontal(id="confirm_buttons"):
+                yield Button("No", id="confirm_no")
+                yield Button("Yes", id="confirm_yes", variant="warning")
+
+    def on_mount(self):
+        self.query_one("#confirm_no").focus()
+
+    def action_answer(self, value: bool):
+        self.dismiss(value)
+
+    @on(Button.Pressed, "#confirm_yes")
+    def on_yes(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#confirm_no")
+    def on_no(self):
+        self.dismiss(False)
 
 
 class ReviewScreen(ModalScreen[tuple | None]):
@@ -1105,7 +1277,8 @@ class ReviewScreen(ModalScreen[tuple | None]):
             status = status_map.get(e["status"], "?")
             poster = "custom" if e.get("poster") else ("TMDB" if e["status"] == "ok" else "-")
             marker = "●" if i in self._all_ok else "○"
-            table.add_row(marker, g.title, season, str(len(g.files)), status, poster)
+            # Text(): titles come from folder/file names and are not markup.
+            table.add_row(marker, Text(g.title), season, str(len(g.files)), status, poster)
         self._selected = set(self._all_ok)
         self._update_checkmarks()
         self._update_status()

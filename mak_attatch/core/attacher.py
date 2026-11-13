@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -8,51 +9,28 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+REQUIRED_TOOLS = ("ffmpeg", "ffprobe", "mkvpropedit", "mkvmerge")
 
-def _ensure_windows_tool_path() -> None:
-    """Make media tools resolvable on Windows from a stale terminal.
 
-    winget installs Gyan.FFmpeg and MKVToolNix without refreshing the PATH
-    of already-open terminals, so the GUI can be launched from a session
-    whose PATH lacks the install directories. Prepend the known locations
-    so check_tools() and subprocess calls find the tools anyway.
+def check_tools() -> list[str]:
+    """Names of required media tools that are not on PATH.
+
+    ffprobe and mkvmerge are used for probing and cover detection; without
+    them operations failed later with a bare "[Errno 2]".
     """
-    if sys.platform != "win32":
-        return
-    dirs = []
-    for var in ("ProgramFiles", "ProgramFiles(x86)"):
-        base = os.environ.get(var)
-        if base:
-            dirs.append(os.path.join(base, "MKVToolNix"))
-    local = os.environ.get("LOCALAPPDATA")
-    if local:
-        dirs.append(os.path.join(local, "Microsoft", "WinGet", "Links"))
-    path = os.environ.get("PATH", "")
-    for d in dirs:
-        if d and os.path.isdir(d) and d not in path:
-            path = d + os.pathsep + path
-    os.environ["PATH"] = path
-
-
-_ensure_windows_tool_path()
-
-
-def check_tools():
-    missing = []
-    if not shutil.which("ffmpeg"):
-        missing.append("ffmpeg")
-    if not shutil.which("mkvpropedit"):
-        missing.append("mkvtoolnix (mkvpropedit)")
-    return missing
+    return [tool for tool in REQUIRED_TOOLS if not shutil.which(tool)]
 
 
 def _validate_path(path: str, allowed_suffixes: set = None) -> Path:
-    if path.startswith("-"):
-        raise ValueError(f"Path starts with '-', possible argument injection: {path}")
-    raw = Path(path)
-    if ".." in str(raw):
-        raise ValueError(f"Path traversal detected: {path}")
-    p = raw.resolve()
+    """Resolve a user-supplied path to an existing file.
+
+    Callers must pass the *returned* absolute path to external tools. An
+    absolute path can never start with '-' (option injection) or '@'
+    (mkvtoolnix option file), so no name-based filtering is needed; earlier
+    '..' / leading-'-' checks rejected real titles such as
+    "Tick, Tick... Boom! (2021).mkv".
+    """
+    p = Path(path).resolve()
     if not p.exists():
         raise FileNotFoundError(f"File not found: {path}")
     if not p.is_file():
@@ -87,7 +65,126 @@ VIDEO_EXTS = {
 }
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tiff"}
 MKV_COMPAT_EXTS = {".mkv"}
-MP4_COMPAT_EXTS = {".mp4", ".mov"}
+MP4_COMPAT_EXTS = {".mp4", ".mov", ".m4v"}
+
+# mkvpropedit edits in place; never SIGKILL it mid-write on a slow mount.
+MKVPROPEDIT_TIMEOUT = 600
+# Full-file ffmpeg rewrites are I/O bound; allow >= 5 MB/s before giving up.
+_MIN_REWRITE_TIMEOUT = 300
+_MIN_REWRITE_RATE = 5 * 1024 * 1024
+
+
+def _rewrite_timeout(size: int) -> int:
+    return max(_MIN_REWRITE_TIMEOUT, int(size / _MIN_REWRITE_RATE))
+
+
+def _rewrite_temp(video_path: str, tag: str) -> str:
+    """Hidden, non-video-named sibling temp file for a full rewrite.
+
+    Media servers and this app's own scanner index files by video extension,
+    so a half-written or orphaned ``.tmp.mp4`` would show up in libraries.
+    The output format is always passed explicitly (``-f mp4``).
+    """
+    return _secure_temp_in_dir(os.path.dirname(video_path), ".part", prefix=f".{tag}-")
+
+
+def _isobmff_output_opts(src: Path) -> list[str]:
+    """Muxer options for rewriting an MP4/MOV/M4V file.
+
+    ffmpeg's MOV and iPod (m4v) muxers silently drop attached_pic/covr, so
+    always write with the MP4 muxer. For MOV/M4V keep the source major brand
+    so QuickTime/iTunes/camera files stay what they were.
+    """
+    ext = src.suffix.lower()
+    opts = ["-f", "mp4"]
+    if ext in (".mov", ".m4v"):
+        fallback = "qt  " if ext == ".mov" else "M4V "
+        opts += ["-brand", _probe_major_brand(str(src)) or fallback]
+    if _is_faststart(str(src)):
+        # Keep web/DLNA progressive playback working: ffmpeg would otherwise
+        # move the index to the end of the file.
+        opts += ["-movflags", "+faststart"]
+    return opts
+
+
+_INVALID_TEXT_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff]")
+
+
+def _clean_text(value) -> str:
+    """Drop characters XML cannot carry (and NUL, which argv cannot either).
+
+    TMDB text occasionally contains stray control characters; left in, they
+    make mkvpropedit reject the tags file or ffmpeg's argv invalid.
+    """
+    return _INVALID_TEXT_RE.sub("", str(value))
+
+
+def _require_writable(p: Path) -> None:
+    # os.replace would happily swap out a read-only file; respect the bit.
+    if not os.access(p, os.W_OK):
+        raise RuntimeError(f"{p.name} is read-only; not modifying it")
+
+
+def _is_faststart(path: str) -> bool:
+    """True when the MP4 index (moov) sits before the media data (mdat)."""
+    try:
+        with open(path, "rb") as f:
+            while True:
+                header = f.read(8)
+                if len(header) < 8:
+                    return False
+                size = int.from_bytes(header[:4], "big")
+                kind = header[4:8]
+                if kind == b"moov":
+                    return True
+                if kind == b"mdat":
+                    return False
+                if size == 1:
+                    size = int.from_bytes(f.read(8), "big")
+                    f.seek(size - 16, os.SEEK_CUR)
+                elif size < 8:
+                    return False
+                else:
+                    f.seek(size - 8, os.SEEK_CUR)
+    except OSError:
+        return False
+
+
+def _require_free_space(p: Path, factor: float = 1.05) -> None:
+    if shutil.disk_usage(p.parent).free < p.stat().st_size * factor:
+        raise RuntimeError(f"Not enough free space in {p.parent} to rewrite {p.name}")
+
+
+def _run_mkvpropedit(cmd: list[str]) -> None:
+    """Run mkvpropedit; exit 1 means warnings, but the changes were written."""
+    result = subprocess.run(cmd, capture_output=True, timeout=MKVPROPEDIT_TIMEOUT)
+    if result.returncode not in (0, 1):
+        # mkvtoolnix prints its errors on stdout.
+        out = (result.stdout + result.stderr).decode(errors="ignore").strip()
+        raise RuntimeError(f"mkvpropedit failed: {out[-500:] or f'exit {result.returncode}'}")
+
+
+def _mkvpropedit(p: Path, args: list[str]) -> None:
+    """Run mkvpropedit on an MKV without touching other hard links to it.
+
+    mkvpropedit edits the inode in place. With a hardlinked file (typical
+    for torrent clients + media managers) that also changes the seeding
+    copy and breaks its piece hashes. In that case edit a private copy and
+    swap it in, which leaves the other links with the original bytes.
+    """
+    _require_writable(p)
+    if p.stat().st_nlink <= 1:
+        _run_mkvpropedit(["mkvpropedit", str(p), *args])
+        return
+    _require_free_space(p)
+    tmp = _rewrite_temp(str(p), "mkvedit")
+    try:
+        shutil.copyfile(p, tmp)
+        _run_mkvpropedit(["mkvpropedit", tmp, *args])
+        _publish_preserving_metadata(tmp, str(p))
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 MIME_MAP = {
     ".jpg": "image/jpeg",
@@ -138,14 +235,21 @@ def _add_simple(parent: ET.Element, name: str, value: str):
     simple = ET.SubElement(parent, "Simple")
     ET.SubElement(simple, "Name").text = name
     if value:
-        ET.SubElement(simple, "String").text = str(value)
+        ET.SubElement(simple, "String").text = _clean_text(value)
+
+
+def _is_series(metadata: dict) -> bool:
+    """TMDB TV details describe the whole show, not the episode in the file."""
+    return metadata.get("media_type") == "tv"
 
 
 def build_mkv_tags_xml(metadata: dict) -> str:
     root = ET.Element("Tags")
     tag = ET.SubElement(root, "Tag")
     targets = ET.SubElement(tag, "Targets")
-    ET.SubElement(targets, "TargetTypeValue").text = "50"
+    # Matroska target levels: 50 = movie/episode, 70 = collection (the show).
+    # Series details must not masquerade as the episode's own title/synopsis.
+    ET.SubElement(targets, "TargetTypeValue").text = "70" if _is_series(metadata) else "50"
 
     if metadata.get("title"):
         _add_simple(tag, "TITLE", metadata["title"])
@@ -168,17 +272,17 @@ def build_mkv_tags_xml(metadata: dict) -> str:
     for actor in metadata.get("cast") or []:
         simple = ET.SubElement(tag, "Simple")
         ET.SubElement(simple, "Name").text = "ACTOR"
-        ET.SubElement(simple, "String").text = str(actor["name"])
+        ET.SubElement(simple, "String").text = _clean_text(actor["name"])
         if actor.get("character"):
             child = ET.SubElement(simple, "Simple")
             ET.SubElement(child, "Name").text = "CHARACTER"
-            ET.SubElement(child, "String").text = str(actor["character"])
+            ET.SubElement(child, "String").text = _clean_text(actor["character"])
 
     return ET.tostring(root, encoding="unicode", xml_declaration=False)
 
 
 def write_metadata_mkv(video_path: str, metadata: dict):
-    _validate_path(video_path, VIDEO_EXTS)
+    p = _validate_path(video_path, VIDEO_EXTS)
     tags_path = None
     try:
         fd, tags_path = tempfile.mkstemp(suffix=".xml")
@@ -187,12 +291,14 @@ def write_metadata_mkv(video_path: str, metadata: dict):
         with open(tags_path, "w", encoding="utf-8") as f:
             f.write(build_mkv_tags_xml(metadata))
 
-        cmd = ["mkvpropedit", video_path]
-        if metadata.get("title"):
-            cmd += ["--edit", "info", "--set", f"title={metadata['title']}"]
+        args = []
+        # The segment title is the episode's own title for TV files; only a
+        # movie's TMDB title belongs there.
+        if metadata.get("title") and not _is_series(metadata):
+            args += ["--edit", "info", "--set", f"title={_clean_text(metadata['title'])}"]
         # Global tags only: `all:` also replaces track-level tags/statistics.
-        cmd += ["--tags", f"global:{tags_path}"]
-        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+        args += ["--tags", f"global:{tags_path}"]
+        _mkvpropedit(p, args)
     finally:
         if tags_path:
             try:
@@ -202,7 +308,20 @@ def write_metadata_mkv(video_path: str, metadata: dict):
 
 
 def _mp4_metadata_flags(metadata: dict) -> list[str]:
+    """ffmpeg -metadata arguments, with characters argv cannot carry removed."""
+    return [_clean_text(arg) for arg in _raw_mp4_metadata_flags(metadata)]
+
+
+def _raw_mp4_metadata_flags(metadata: dict) -> list[str]:
     flags = []
+    if _is_series(metadata):
+        # Show-level data goes into the TV-show atom; the episode's own
+        # title, air date and description are left alone.
+        if metadata.get("title"):
+            flags += ["-metadata", f"show={metadata['title']}"]
+        if metadata.get("genres"):
+            flags += ["-metadata", f"genre={', '.join(metadata['genres'])}"]
+        return flags
     if metadata.get("title"):
         flags += ["-metadata", f"title={metadata['title']}"]
     if metadata.get("year"):
@@ -219,28 +338,49 @@ def _mp4_metadata_flags(metadata: dict) -> list[str]:
     return flags
 
 
-def write_metadata_mp4(video_path: str, metadata: dict):
-    p = _validate_path(video_path, VIDEO_EXTS)
-    video_path = str(p)
-    tmp = _sibling_temp(video_path, f".meta_tmp{p.suffix}")
+def _ffmpeg_rewrite(p: Path, tag: str, args: list[str], expected_streams: int) -> None:
+    """Rewrite an MP4/MOV/M4V file via a verified, fsynced sibling temp file.
+
+    ``args`` are the ffmpeg inputs/mapping/codec options; the muxer options
+    and output path are added here so every rewrite path behaves the same.
+    The original is only replaced after the output has been verified.
+    """
+    _require_writable(p)
+    _require_free_space(p)
+    muxer = _isobmff_output_opts(p)
+    tmp = _rewrite_temp(str(p), tag)
     try:
         result = subprocess.run(
-            [
-                "ffmpeg", "-y", "-nostdin", "-i", video_path,
-                "-map", "0",
-                "-map_metadata", "-1",
-                *_mp4_metadata_flags(metadata),
-                "-c", "copy",
-                tmp,
-            ],
-            capture_output=True, timeout=300,
+            ["ffmpeg", "-y", "-nostdin", *args, *muxer, tmp],
+            capture_output=True, timeout=_rewrite_timeout(p.stat().st_size),
         )
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-        _publish_preserving_metadata(tmp, video_path)
+            raise RuntimeError(result.stderr.decode(errors="ignore")[-300:] or "ffmpeg failed")
+        _verify_rewrite(str(p), tmp, expected_streams)
+        _publish_preserving_metadata(tmp, str(p))
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+# `-map_metadata:g -1` drops only the *global* tags. A bare `-map_metadata -1`
+# would also wipe per-stream and per-chapter metadata (audio/subtitle
+# languages, track titles, chapter names) on every metadata write.
+_DROP_GLOBAL_METADATA = ["-map_metadata:g", "-1"]
+
+
+def write_metadata_mp4(video_path: str, metadata: dict):
+    p = _validate_path(video_path, VIDEO_EXTS)
+    # A movie's tags are replaced wholesale so stale ones don't linger. For a
+    # TV episode keep its own global tags (title, air date, description) and
+    # only add the show-level ones.
+    reset = [] if _is_series(metadata) else _DROP_GLOBAL_METADATA
+    _ffmpeg_rewrite(
+        p, "meta",
+        ["-i", str(p), "-map", "0", *reset,
+         *_mp4_metadata_flags(metadata), "-c", "copy"],
+        expected_streams=len(_probe_streams(str(p))),
+    )
 
 
 def write_metadata(video_path: str, metadata: dict):
@@ -258,29 +398,15 @@ def remove_metadata(video_path: str):
     video_path = str(p)
     ext = p.suffix.lower()
     if ext in MKV_COMPAT_EXTS:
-        subprocess.run(
-            ["mkvpropedit", video_path, "--edit", "info", "--delete", "title", "--tags", "all:"],
-            check=True, capture_output=True, timeout=60,
-        )
+        # `global:` with no file removes the global tags only; `all:` would
+        # also delete mkvmerge's per-track statistics tags.
+        _mkvpropedit(p, ["--edit", "info", "--delete", "title", "--tags", "global:"])
     elif ext in MP4_COMPAT_EXTS:
-        tmp = _sibling_temp(video_path, f".meta_rm_tmp{p.suffix}")
-        try:
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-y", "-nostdin", "-i", video_path,
-                    "-map", "0",
-                    "-map_metadata", "-1",
-                    "-c", "copy",
-                    tmp,
-                ],
-                capture_output=True, timeout=300,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-            _publish_preserving_metadata(tmp, video_path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        _ffmpeg_rewrite(
+            p, "meta-rm",
+            ["-i", video_path, "-map", "0", *_DROP_GLOBAL_METADATA, "-c", "copy"],
+            expected_streams=len(_probe_streams(video_path)),
+        )
     else:
         raise RuntimeError("Metadata removal is only supported for MKV and MP4 files")
 
@@ -329,7 +455,7 @@ def _mkv_attachment_names(video_path: str) -> list[str]:
             ["mkvmerge", "-J", video_path],
             capture_output=True, timeout=60,
         )
-        if result.returncode == 0:
+        if result.returncode in (0, 1):  # 1 = warnings
             data = json.loads(result.stdout)
             return [
                 a["file_name"] for a in data.get("attachments", [])
@@ -390,8 +516,64 @@ def _plan_mkv_streams(
     return keep, dropped
 
 
+def _probe_duration(path: str) -> float | None:
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", path],
+            capture_output=True, text=True, timeout=60,
+        )
+        return float(result.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _verify_rewrite(src: str, tmp: str, expected_streams: int) -> None:
+    """Refuse to publish a rewrite that lost streams or got truncated.
+
+    ffmpeg can exit 0 after a mid-file demux error and leave a shorter file,
+    which would otherwise silently replace the user's original.
+    """
+    got = len(_probe_streams(tmp))
+    if got != expected_streams:
+        raise RuntimeError(
+            f"Rewrite verification failed: expected {expected_streams} streams, got {got}"
+        )
+    d_src, d_out = _probe_duration(src), _probe_duration(tmp)
+    if d_src and d_out is not None and abs(d_src - d_out) > max(1.0, d_src * 0.005):
+        raise RuntimeError(
+            f"Rewrite verification failed: duration {d_out:.1f}s vs original {d_src:.1f}s"
+        )
+
+
+def _fsync_file(path: str) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: str) -> None:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return  # some filesystems cannot open directories
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def _publish_preserving_metadata(tmp: str, dest: str) -> None:
-    """Atomically replace dest while keeping its mode, timestamps and owner."""
+    """Atomically replace dest while keeping its mode, timestamps and owner.
+
+    The new data is fsynced before the rename so a crash or power loss
+    cannot leave a zero-length file in place of the original.
+    """
+    _fsync_file(tmp)
     st = os.stat(dest)
     if hasattr(os, "chown"):
         try:
@@ -403,6 +585,7 @@ def _publish_preserving_metadata(tmp: str, dest: str) -> None:
     except OSError:
         os.chmod(tmp, stat.S_IMODE(st.st_mode))
     os.replace(tmp, dest)
+    _fsync_dir(os.path.dirname(os.path.abspath(dest)))
 
 
 def _publish_no_clobber(tmp: str, out: str) -> None:
@@ -431,13 +614,16 @@ def remux_to_mkv(video_path: str, drop_attached_pic: bool = False) -> str:
     if p.suffix.lower() in MKV_COMPAT_EXTS:
         return video_path  # unchanged: callers compare this with their input
 
-    out = str(p.with_suffix(".mkv"))
+    # Put the MKV next to the path the user gave: for a symlinked library
+    # entry that is the library folder, not wherever the target lives.
+    given = Path(os.path.abspath(os.path.expanduser(video_path)))
+    out = str(given.with_suffix(".mkv"))
     if os.path.lexists(out):
         raise RuntimeError(f"Target already exists, refusing to overwrite: {out}")
 
     src_stat = p.stat()
-    if shutil.disk_usage(p.parent).free < src_stat.st_size * 1.05:
-        raise RuntimeError(f"Not enough free space in {p.parent} to remux {p.name}")
+    if shutil.disk_usage(given.parent).free < src_stat.st_size * 1.05:
+        raise RuntimeError(f"Not enough free space in {given.parent} to remux {p.name}")
 
     streams = _probe_streams(str(p))
     if not any(s.get("codec_type") in ("video", "audio") for s in streams):
@@ -450,7 +636,7 @@ def remux_to_mkv(video_path: str, drop_attached_pic: bool = False) -> str:
         )
 
     # Hidden, non-.mkv name so library scanners never index a half-written file.
-    tmp = _sibling_temp(str(p), ".mkv.part", prefix=".remux-")
+    tmp = _secure_temp_in_dir(str(given.parent), ".mkv.part", prefix=".remux-")
     try:
         cmd = ["ffmpeg", "-y", "-nostdin", "-i", str(p)]
         for idx, _ in keep:
@@ -489,15 +675,15 @@ def attach_poster_mkv(video_path: str, poster_path: str):
     # Remove only covers this app created, then add the new one in the same
     # mkvpropedit invocation. mkvpropedit does not write any changes if an
     # action fails, so a failed add leaves the old cover in place.
-    cmd = ["mkvpropedit", str(p)]
+    args = []
     for old in _cover_attachment_names(str(p)):
-        cmd += ["--delete-attachment", f"name:{old}"]
-    cmd += [
+        args += ["--delete-attachment", f"name:{old}"]
+    args += [
         "--attachment-mime-type", mime,
         "--attachment-name", name,
         "--add-attachment", str(poster),
     ]
-    subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+    _mkvpropedit(p, args)
 
 
 def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
@@ -509,9 +695,8 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     # previous remove-then-add sequence, so a failed ffmpeg run leaves the
     # original file untouched.
     pic_idx = _find_attached_pic(video_path)
-    video_count = sum(
-        1 for s in _probe_streams(video_path) if s.get("codec_type") == "video"
-    )
+    src_streams = _probe_streams(video_path)
+    video_count = sum(1 for s in src_streams if s.get("codec_type") == "video")
     poster_index = video_count - (1 if pic_idx is not None else 0)
 
     poster_codec = next(
@@ -523,16 +708,14 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
     # not valid MP4 cover codecs, so transcode those to JPEG.
     poster_encoder = "copy" if poster_codec in ("mjpeg", "png") else "mjpeg"
 
-    tmp = _sibling_temp(video_path, f".tmp{p.suffix}")
-    cmd = [
-        "ffmpeg", "-y", "-nostdin",
+    args = [
         "-i", video_path,
         "-i", str(poster),
         "-map", "0",
     ]
     if pic_idx is not None:
-        cmd += ["-map", f"-0:{pic_idx}"]
-    cmd += [
+        args += ["-map", f"-0:{pic_idx}"]
+    args += [
         "-map", "1",
         "-c", "copy",
         f"-c:v:{poster_index}", poster_encoder,
@@ -540,22 +723,9 @@ def attach_poster_mp4(video_path: str, poster_path: str, metadata: dict = None):
         f"-metadata:s:v:{poster_index}", "comment=Cover (front)",
     ]
     if metadata:
-        cmd += _mp4_metadata_flags(metadata)
-    if p.suffix.lower() == ".mov":
-        # ffmpeg's MOV muxer silently drops attached_pic/covr. The MP4 muxer
-        # writes the same ISO-BMFF cover atom; keep the source major brand so
-        # QuickTime/camera files stay what they were.
-        cmd += ["-f", "mp4", "-brand", _probe_major_brand(video_path) or "qt  "]
-    cmd += [tmp]
-    try:
-        subprocess.run(
-            cmd,
-            check=True, capture_output=True, timeout=120,
-        )
-        _publish_preserving_metadata(tmp, video_path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        args += _mp4_metadata_flags(metadata)
+    expected = len(src_streams) - (1 if pic_idx is not None else 0) + 1
+    _ffmpeg_rewrite(p, "poster", args, expected_streams=expected)
 
 
 def _find_attached_pic(video_path: str) -> int | None:
@@ -591,41 +761,21 @@ def remove_poster(video_path: str):
         names = _cover_attachment_names(str(p))
         if not names:
             return
-        cmd = ["mkvpropedit", str(p)]
+        args = []
         for name in names:
-            cmd += ["--delete-attachment", f"name:{name}"]
-        result = subprocess.run(cmd, capture_output=True, timeout=60)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to remove poster: {result.stderr.decode(errors='ignore')}"
-            )
+            args += ["--delete-attachment", f"name:{name}"]
+        _mkvpropedit(p, args)
     elif ext in MP4_COMPAT_EXTS:
         video_path = str(p)
         pic_idx = _find_attached_pic(video_path)
         if pic_idx is None:
             return
-        tmp = _sibling_temp(video_path, f".poster_rm_tmp{p.suffix}")
-        try:
-            out_opts = []
-            if ext == ".mov":
-                # Match attach_poster_mp4: the MOV muxer would rewrite the brand.
-                out_opts = ["-f", "mp4", "-brand",
-                            _probe_major_brand(video_path) or "qt  "]
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-y", "-nostdin", "-i", video_path,
-                    "-map", "0", "-map", f"-0:{pic_idx}",
-                    "-map_metadata", "0",
-                    "-c", "copy", *out_opts, tmp,
-                ],
-                capture_output=True, timeout=120,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.decode(errors='ignore')[-300:])
-            _publish_preserving_metadata(tmp, video_path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        _ffmpeg_rewrite(
+            p, "poster-rm",
+            ["-i", video_path, "-map", "0", "-map", f"-0:{pic_idx}",
+             "-map_metadata", "0", "-c", "copy"],
+            expected_streams=len(_probe_streams(video_path)) - 1,
+        )
     else:
         raise RuntimeError("Remove poster is only supported for MKV and MP4 files")
 
@@ -642,6 +792,11 @@ def full_attach(video_path: str, poster_path: str, metadata: dict = None,
         return video_path
 
     if to_mkv:
+        target = p.with_suffix(".mkv")
+        if os.path.lexists(target):
+            # Check before touching the source: otherwise every rescan fully
+            # rewrites the MP4 and only then fails on the existing MKV.
+            raise RuntimeError(f"Already converted, skipping: {target.name} exists")
         # Attaching to the MP4 first preserves the existing behaviour of
         # keeping a poster on both files. Non-MP4 sources must be remuxed
         # first: attach_poster_mp4 cannot operate on AVI/WebM/FLV inputs.

@@ -20,6 +20,12 @@ EXPLICIT_EPISODE_RE = re.compile(
 LEADING_YEAR_RE = re.compile(r"^((?:19|20)\d{2})(?=$|[\s._:\-])")
 
 
+def _first(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
 def _only_digits(value: str) -> str:
     return re.sub(r"\D", "", value or "")
 
@@ -33,7 +39,7 @@ def _is_numeric_title_episode(name: str, info: dict) -> bool:
     """
     season = info.get("season")
     episode = info.get("episode")
-    if season is None or episode is None or guessit is None:
+    if not isinstance(season, int) or not isinstance(episode, int) or guessit is None:
         return False
     candidates = {f"{season:02d}{episode:02d}", f"{season}{episode:02d}"}
     stem_digits = _only_digits(name)
@@ -51,9 +57,15 @@ def _is_numeric_title_episode(name: str, info: dict) -> bool:
 
 def parse_filename(filepath: str) -> dict:
     path = Path(filepath)
-    name = path.stem
+    # Only strip a real video extension: a folder such as "The.Matrix.1999"
+    # or "Dr. Strangelove" has no extension, and Path.stem would cut it.
+    name = path.stem if path.suffix.lower() in VIDEO_EXTS else path.name
 
-    result = {"title": name, "year": "", "season": None, "episode": None, "type": "movie"}
+    # title_guessed is False when guessit found no title and the raw name was
+    # used instead (e.g. "S01E01 - Pilot"); callers can then fall back to the
+    # folder name.
+    result = {"title": name, "year": "", "season": None, "episode": None,
+              "type": "movie", "title_guessed": True}
 
     if guessit:
         try:
@@ -69,8 +81,10 @@ def parse_filename(filepath: str) -> dict:
             if is_episode:
                 result["type"] = "episode"
                 result["title"] = info.get("title") or name
-                result["season"] = info.get("season")
-                result["episode"] = info.get("episode")
+                result["title_guessed"] = bool(info.get("title"))
+                # guessit returns lists for multi-episode files (S01E01E02).
+                result["season"] = _first(info.get("season"))
+                result["episode"] = _first(info.get("episode"))
                 result["year"] = str(info.get("year") or "")
                 return result
 

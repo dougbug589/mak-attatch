@@ -6,17 +6,12 @@ from pathlib import Path
 
 import requests
 
-from core import attacher, scanner, tmdb
+from mak_attatch.core import attacher, scanner, tmdb
 
 
-def _best_match(results: list[dict], year: str) -> dict | None:
-    if not results:
-        return None
-    if year:
-        for r in results:
-            if str(r.get("year") or "").startswith(str(year)):
-                return r
-    return results[0]
+def _best_match(results: list[dict], year: str, title: str = "") -> dict | None:
+    """Best plausible match, or None when no result resembles ``title``."""
+    return tmdb.best_match(results, title, year)
 
 
 def resolve_groups(groups: list[scanner.MediaGroup], api_delay: float = 0.25,
@@ -39,7 +34,7 @@ def resolve_groups(groups: list[scanner.MediaGroup], api_delay: float = 0.25,
         media_type = "tv" if group.kind == "show" else "movie"
         try:
             results = tmdb.search(query, media_type)
-            match = _best_match(results, group.year)
+            match = _best_match(results, group.year, group.title)
             if match:
                 entry["match"] = {
                     "id": match["id"],
@@ -50,6 +45,11 @@ def resolve_groups(groups: list[scanner.MediaGroup], api_delay: float = 0.25,
                 entry["status"] = "ok"
             else:
                 entry["status"] = "no-match"
+                if results:
+                    entry["error"] = (
+                        f"closest TMDB result {results[0].get('title')!r} "
+                        "does not match the title; review it manually"
+                    )
         except (tmdb.TMDBError, ValueError, OSError, requests.RequestException) as e:
             entry["error"] = str(e)
         resolved.append(entry)
@@ -70,15 +70,18 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
     When ``to_mkv`` is True, non-MKV sources are first remuxed to MKV with a
     lossless stream copy before the poster is attached.
 
-    Returns a summary dict: {"ok", "fail", "skipped", "errors"}.
+    Returns a summary dict: {"ok", "fail", "skipped", "errors", "converted"},
+    where "converted" maps each remuxed source path to its new .mkv path.
     """
-    summary = {"ok": 0, "fail": 0, "skipped": 0, "errors": []}
+    summary = {"ok": 0, "fail": 0, "skipped": 0, "errors": [], "converted": {}}
     MAX_ERRORS = 20
     ok_groups = [r for r in resolved if r["status"] == "ok"]
     total_files = sum(len(r["group"].files) for r in ok_groups)
     done = 0
 
     for entry in ok_groups:
+        if cancel and cancel():
+            break  # stop the whole run, not just the current group's files
         group = entry["group"]
         match = entry["match"]
         poster_path = None
@@ -115,8 +118,10 @@ def attach_groups(resolved: list[dict], skip_existing: bool = True,
                         progress(done, total_files, filepath, "skip")
                     continue
                 try:
-                    attacher.full_attach(filepath, poster_path, metadata=metadata,
-                                         to_mkv=to_mkv)
+                    out = attacher.full_attach(filepath, poster_path, metadata=metadata,
+                                               to_mkv=to_mkv)
+                    if out and out != filepath:
+                        summary["converted"][filepath] = out
                     scanner.clear_poster_cache(filepath)
                     summary["ok"] += 1
                     if progress:

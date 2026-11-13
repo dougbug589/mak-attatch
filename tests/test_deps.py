@@ -3,7 +3,7 @@ import io
 import unittest
 from unittest import mock
 
-from core import deps
+from mak_attatch.core import deps
 
 
 class DepsDetectionTest(unittest.TestCase):
@@ -22,10 +22,10 @@ class DepsDetectionTest(unittest.TestCase):
 
     def test_install_command_apt(self):
         with mock.patch.object(deps, "package_manager", return_value="apt"):
-            self.assertEqual(
-                deps.install_command(),
-                "sudo apt install -y ffmpeg mkvtoolnix chafa yazi curl",
-            )
+            # Only the required tools by default; no third-party repo needed.
+            self.assertEqual(deps.install_command(), "sudo apt install -y ffmpeg mkvtoolnix")
+            self.assertEqual(deps.install_command(include_tui=True),
+                             "sudo apt install -y ffmpeg mkvtoolnix yazi chafa")
 
     def test_install_command_pacman_uses_cli_package(self):
         with mock.patch.object(deps, "package_manager", return_value="pacman"):
@@ -38,8 +38,10 @@ class DepsDetectionTest(unittest.TestCase):
     def test_yazi_keyring_only_for_apt(self):
         with mock.patch.object(deps, "package_manager", return_value="apt"):
             cmds = deps.yazi_keyring_commands()
-            self.assertEqual(len(cmds), 2)
-            self.assertIn("yazi-keyring.gpg", cmds[0])
+            self.assertIn("yazi-keyring.gpg", cmds[1])
+            # A failed or empty download must stop before the source is added.
+            self.assertIn("test -s", cmds[1])
+            self.assertEqual(cmds[-1], "sudo apt-get update")
         with mock.patch.object(deps, "package_manager", return_value="pacman"):
             self.assertEqual(deps.yazi_keyring_commands(), [])
 
@@ -67,7 +69,8 @@ class DepsDetectionTest(unittest.TestCase):
                 deps.shutil, "which",
                 side_effect=lambda b: None if b in ("yazi", "chafa")
                 else "/usr/bin/" + b):
-            self.assertEqual(sorted(deps.missing_binaries()), ["chafa", "yazi"])
+            self.assertEqual(deps.missing_binaries(), [])
+            self.assertEqual(sorted(deps.missing_binaries(include_tui=True)), ["chafa", "yazi"])
 
     def test_hint_includes_install_command_and_keyring(self):
         with mock.patch.object(deps, "package_manager", return_value="apt"):

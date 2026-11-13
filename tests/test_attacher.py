@@ -2,14 +2,13 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import config
-from core import attacher, parser, tmdb
+from mak_attatch import config
+from mak_attatch.core import attacher, parser, tmdb
 
 
 def _have(cmd: str) -> bool:
@@ -93,7 +92,14 @@ def _meta() -> dict:
     }
 
 
-@unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
+# Skip whole classes (not a helper) when the media tools are missing: a
+# skip raised while a class body is evaluated aborts collection of the whole
+# module, silently hiding the pure-Python tests in it.
+requires_media_tools = unittest.skipUnless(
+    _have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required"
+)
+
+
 def _have_ffmpeg_codec(codec: str) -> bool:
     if not _have("ffmpeg"):
         return False
@@ -106,6 +112,7 @@ def _have_ffmpeg_codec(codec: str) -> bool:
         return False
 
 
+@requires_media_tools
 class TestAttacher(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -117,29 +124,28 @@ class TestAttacher(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def test_windows_tool_path_prepends_known_dirs(self):
-        with patch("sys.platform", "win32"), \
-                patch("os.path.isdir", return_value=True), \
-                patch.dict(os.environ, {
-                    "ProgramFiles": r"C:\Program Files",
-                    "ProgramFiles(x86)": r"C:\Program Files (x86)",
-                    "LOCALAPPDATA": r"C:\Users\x\AppData\Local",
-                    "PATH": r"C:\Windows",
-                }, clear=False):
-            attacher._ensure_windows_tool_path()
-            self.assertIn("MKVToolNix", os.environ["PATH"])
-            self.assertIn(os.path.join("WinGet", "Links"), os.environ["PATH"])
-
-    def test_windows_tool_path_skipped_off_windows(self):
-        with patch("sys.platform", "linux"), \
-                patch.dict(os.environ, {"PATH": r"C:\Windows"}, clear=False):
-            attacher._ensure_windows_tool_path()
-            self.assertEqual(os.environ["PATH"], r"C:\Windows")
-
     def test_injection_guard(self):
-        for bad in ["-V", "--version", "../etc/passwd"]:
-            with self.assertRaises(ValueError):
-                attacher.attach_poster_mkv(bad, str(self.img))
+        # Option-like or traversal inputs that are not real files must never
+        # reach a media tool.
+        with patch("mak_attatch.core.attacher.subprocess.run") as run:
+            for bad in ["-V", "--version", "../etc/passwd"]:
+                with self.assertRaises((ValueError, OSError)):
+                    attacher.attach_poster_mkv(bad, str(self.img))
+            run.assert_not_called()
+
+    def test_real_names_with_dots_and_dashes_are_accepted(self):
+        # Titles such as "Tick, Tick... Boom!" used to be rejected as path
+        # traversal; a leading '-' is harmless once the path is absolute.
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        try:
+            for name in ["Tick, Tick... Boom! (2021).mkv", "-dash-start.mkv"]:
+                v = self.tmp / name
+                _make_video(v)
+                attacher.attach_poster_mkv(name, str(self.img))
+                self.assertEqual(_pic_count(str(v)), 1, name)
+        finally:
+            os.chdir(cwd)
 
     def test_mkv_attach_and_metadata(self):
         v = self.tmp / "a.mkv"
@@ -393,7 +399,7 @@ class TestParser(unittest.TestCase):
 
 
 try:
-    from ui.main_window import BatchWorker, ConvertWorker, MainWindow
+    from mak_attatch.ui.main_window import BatchWorker, ConvertWorker, MainWindow
 except ImportError:  # PyQt6 not installed (CI test runner)
     BatchWorker = None
     ConvertWorker = None
@@ -410,12 +416,13 @@ class TestSharedCore(unittest.TestCase):
 
     def test_tui_imports_shared_core(self):
         try:
-            import poster_tui.app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
-        self.assertTrue(poster_tui.app.attacher.__name__.startswith("core"))
+        self.assertTrue(tui_app.attacher.__name__.startswith("mak_attatch.core"))
 
 
+@requires_media_tools
 class TestBatchWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -465,7 +472,7 @@ class TestBatchAttachTargets(unittest.TestCase):
     def test_batch_attach_uses_selected_targets_not_all_files(self):
         from unittest.mock import Mock
 
-        from ui import main_window as mw
+        from mak_attatch.ui import main_window as mw
 
         captured = {}
 
@@ -508,7 +515,7 @@ class TestPosterGridSelection(unittest.TestCase):
 
     @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
     def test_select_by_poster_matches_file_path(self):
-        from ui.poster_grid import PosterGrid
+        from mak_attatch.ui.poster_grid import PosterGrid
 
         grid = PosterGrid.__new__(PosterGrid)
         grid.cards = [self._FakeCard({"file_path": "/a.jpg"}),
@@ -520,7 +527,7 @@ class TestPosterGridSelection(unittest.TestCase):
 
     @unittest.skipIf(MainWindow is None, "PyQt6 not installed")
     def test_select_by_poster_falls_back_to_thumb_url(self):
-        from ui.poster_grid import PosterGrid
+        from mak_attatch.ui.poster_grid import PosterGrid
 
         grid = PosterGrid.__new__(PosterGrid)
         grid.cards = [self._FakeCard({"thumb_url": "https://img/a.jpg"}),
@@ -530,6 +537,7 @@ class TestPosterGridSelection(unittest.TestCase):
         self.assertEqual([c.selected for c in grid.cards], [True, False])
 
 
+@requires_media_tools
 class TestConvertWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -566,7 +574,7 @@ class TestConvertWorker(unittest.TestCase):
     def test_convert_done_swaps_paths_and_refreshes(self):
         from unittest.mock import Mock
 
-        from ui import main_window as mw
+        from mak_attatch.ui import main_window as mw
 
         window = mw.MainWindow.__new__(mw.MainWindow)
         window.video_paths = ["/tmp/a.mp4", "/tmp/b.mkv"]
@@ -592,7 +600,7 @@ class TestPosterTuiPosterGallery(unittest.TestCase):
 
             from textual.widgets import ListItem
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -626,18 +634,20 @@ class TestPosterTuiPosterGallery(unittest.TestCase):
 
 class TestDetailsForPath(unittest.TestCase):
     def test_uses_explicit_media(self):
-        with patch("core.tmdb.get_details", return_value={"title": "X"}) as gd, \
-                patch("core.tmdb.search", return_value=[{"id": 1, "media_type": "movie"}]) as sr:
+        with patch("mak_attatch.core.tmdb.get_details", return_value={"title": "X"}) as gd, \
+                patch("mak_attatch.core.tmdb.search",
+                      return_value=[{"id": 1, "media_type": "movie"}]) as sr:
             meta = tmdb.details_for_path("/a/b/Movie (2000).mkv", {"id": 7, "media_type": "tv"})
         self.assertEqual(meta, {"title": "X"})
         gd.assert_called_once_with(7, "tv")
         sr.assert_not_called()
 
     def test_auto_searches_by_filename(self):
-        with patch("core.tmdb.get_details",
+        with patch("mak_attatch.core.tmdb.get_details",
                    side_effect=lambda i, t: {"id": i, "type": t}) as gd, \
-                patch("core.tmdb.search",
-                      return_value=[{"id": 42, "media_type": "movie"}]) as sr:
+                patch("mak_attatch.core.tmdb.search",
+                      return_value=[{"id": 42, "media_type": "movie",
+                                     "title": "The Matrix", "year": "1999"}]) as sr:
             meta = tmdb.details_for_path("/a/b/The Matrix (1999).mkv")
         sr.assert_called_once()
         self.assertIn("matrix", sr.call_args[0][0].lower())
@@ -645,11 +655,12 @@ class TestDetailsForPath(unittest.TestCase):
         self.assertEqual(meta, {"id": 42, "type": "movie"})
 
     def test_no_match_raises(self):
-        with patch("core.tmdb.search", return_value=[]):
+        with patch("mak_attatch.core.tmdb.search", return_value=[]):
             with self.assertRaises(tmdb.TMDBError):
                 tmdb.details_for_path("/a/b/Unknown (1999).mkv")
 
 
+@requires_media_tools
 class TestMetadataOnly(unittest.TestCase):
     @unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"), "ffmpeg/mkvtoolnix required")
     def test_write_metadata_without_poster(self):
@@ -667,6 +678,7 @@ class TestMetadataOnly(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+@requires_media_tools
 class TestPosterTuiFileSelection(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -677,12 +689,13 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         _make_video(Path(cls.v2))
         real_get = config.get
 
-        def get(key, default=None):
+        def get(key):
             # Without a key the app pushes SettingsScreen on mount, which
             # would steal focus from the widgets these tests drive.
             if key == "tmdb_api_key":
                 return "test-key"
-            return real_get(key, default)
+            # config.get() takes only the key; it supplies the default itself.
+            return real_get(key)
 
         cls._config_patches = [
             patch.object(config, "get", side_effect=get),
@@ -702,7 +715,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
             import asyncio
             import types
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -746,7 +759,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         try:
             import asyncio
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -781,7 +794,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         try:
             import asyncio
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -813,7 +826,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         try:
             import asyncio
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -835,7 +848,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
 
             from textual import events
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -866,7 +879,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
             import tempfile
             from pathlib import Path
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -894,7 +907,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
             import tempfile
             from pathlib import Path
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -922,7 +935,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         try:
             import asyncio
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -947,7 +960,7 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         try:
             import asyncio
 
-            import poster_tui.app as tui_app
+            import mak_attatch.poster_tui.app as tui_app
         except ImportError:
             self.skipTest("textual not installed")
 
@@ -958,11 +971,15 @@ class TestPosterTuiFileSelection(unittest.TestCase):
             app = tui_app.PosterTuiApp()
             with patch.object(tui_app.tmdb, "search", return_value=[]), \
                     patch.object(tui_app.tmdb, "details_for_path", return_value=meta):
-                async with app.run_test():
+                async with app.run_test() as pilot:
                     app._add_video_path(self.v1)
                     app._add_video_path(self.v2)
                     await asyncio.sleep(0.1)
                     app.on_scrape_metadata()
+                    await pilot.pause()
+                    # Nothing is selected, so this hits ALL files: it must ask.
+                    self.assertIsInstance(app.screen, tui_app.ConfirmScreen)
+                    await pilot.press("y")
                     for _ in range(100):
                         if str(app.query_one("#status").content).startswith(
                             "Metadata written to 2"
@@ -978,12 +995,9 @@ class TestPosterTuiFileSelection(unittest.TestCase):
         asyncio.run(run())
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
-@unittest.skipUnless(_have("ffmpeg") and _have("mkvpropedit"),
-                     "ffmpeg/mkvtoolnix required")
+@requires_media_tools
 class TestRemuxRegressions(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="mak-attatch-remux-"))
@@ -1034,8 +1048,7 @@ class TestRemuxRegressions(unittest.TestCase):
             "subrip",
             [s.get("codec_name") for s in streams if s.get("codec_type") == "subtitle"],
         )
-        if sys.platform != "win32":
-            self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
+        self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
         self.assertEqual(list(self.tmp.glob(".remux-*")), [])
 
     def test_remux_failure_leaves_no_partial_output(self):
@@ -1048,13 +1061,12 @@ class TestRemuxRegressions(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 1, b"", b"forced failure")
             return real_run(cmd, *args, **kwargs)
 
-        with patch("core.attacher.subprocess.run", side_effect=fake_run):
+        with patch("mak_attatch.core.attacher.subprocess.run", side_effect=fake_run):
             with self.assertRaises(RuntimeError):
                 attacher.remux_to_mkv(str(video))
         self.assertFalse(video.with_suffix(".mkv").exists())
         self.assertEqual(list(self.tmp.glob(".remux-*")), [])
 
-    @unittest.skipIf(sys.platform == "win32", "POSIX mode/symlink semantics")
     def test_mp4_operations_preserve_mode_symlink_and_brand(self):
         video = self.tmp / "plain.mp4"
         _make_video(video, "mpeg4")
@@ -1136,3 +1148,7 @@ class TestRemuxRegressions(unittest.TestCase):
         self.assertTrue(out.endswith(".mkv"))
         self.assertTrue(Path(out).exists())
         self.assertEqual(_pic_count(out), 1)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

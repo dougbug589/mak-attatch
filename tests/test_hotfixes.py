@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import requests
 
-from core import attacher, autoattach, tmdb
-from core.scanner import MediaGroup
+from mak_attatch.core import attacher, autoattach, tmdb
+from mak_attatch.core.scanner import MediaGroup
 
 
 class FetchRedirectAuthTest(unittest.TestCase):
@@ -43,9 +43,9 @@ class FetchRedirectAuthTest(unittest.TestCase):
         mock_session = MagicMock()
         mock_session.get.side_effect = fake_get
 
-        with mock.patch("core.tmdb._get_session", return_value=mock_session), \
-             mock.patch("core.tmdb._validate_url"), \
-             mock.patch("core.tmdb.config.get", return_value=self.API_KEY):
+        with mock.patch("mak_attatch.core.tmdb._get_session", return_value=mock_session), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"), \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value=self.API_KEY):
             tmdb._fetch("https://api.themoviedb.org/p/w500/old.jpg")
 
         self.assertEqual(seen[0][1]["Authorization"], f"Bearer {self.API_KEY}")
@@ -65,9 +65,9 @@ class FetchRedirectAuthTest(unittest.TestCase):
         mock_session = MagicMock()
         mock_session.get.side_effect = fake_get
 
-        with mock.patch("core.tmdb._get_session", return_value=mock_session), \
-             mock.patch("core.tmdb._validate_url"), \
-             mock.patch("core.tmdb.config.get", return_value=self.API_KEY):
+        with mock.patch("mak_attatch.core.tmdb._get_session", return_value=mock_session), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"), \
+             mock.patch("mak_attatch.core.tmdb.config.get", return_value=self.API_KEY):
             tmdb._fetch("https://api.themoviedb.org/p/w500/old.jpg")
 
         self.assertEqual(seen[0][1]["Authorization"], f"Bearer {self.API_KEY}")
@@ -106,8 +106,8 @@ class DownloadImageTest(unittest.TestCase):
         payload = b"\xff\xd8\xff\xe0" + b"\x00" * 16
         dest = self._dest()
         resp = self._resp(content_type="image/jpeg", payload=payload)
-        with mock.patch("core.tmdb._fetch", return_value=resp), \
-             mock.patch("core.tmdb._validate_url"):
+        with mock.patch("mak_attatch.core.tmdb._fetch", return_value=resp), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"):
             tmdb.download_image("https://image.tmdb.org/t/p/x.jpg", dest)
         with open(dest, "rb") as f:
             self.assertEqual(f.read(), payload)
@@ -115,28 +115,28 @@ class DownloadImageTest(unittest.TestCase):
     def test_retries_503_then_succeeds(self):
         dest = self._dest()
         resp = self._resp(payload=b"\xff\xd8\xff\xe0" + b"\x00" * 8)
-        with mock.patch("core.tmdb._fetch",
+        with mock.patch("mak_attatch.core.tmdb._fetch",
                         side_effect=[_http_error(503), _http_error(503), resp]) as fetch, \
-             mock.patch("core.tmdb._validate_url"), \
-             mock.patch("core.tmdb.time.sleep"):
+             mock.patch("mak_attatch.core.tmdb._validate_url"), \
+             mock.patch("mak_attatch.core.tmdb.time.sleep"):
             tmdb.download_image("https://image.tmdb.org/t/p/x.jpg", dest)
         self.assertEqual(fetch.call_count, 3)
 
     def test_503_after_all_retries_raises_busy(self):
         dest = self._dest()
-        with mock.patch("core.tmdb._fetch", side_effect=[_http_error(503)] * 3), \
-             mock.patch("core.tmdb._validate_url"), \
-             mock.patch("core.tmdb.time.sleep"):
+        with mock.patch("mak_attatch.core.tmdb._fetch", side_effect=[_http_error(503)] * 3), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"), \
+             mock.patch("mak_attatch.core.tmdb.time.sleep"):
             with self.assertRaises(tmdb.TMDBError) as ctx:
                 tmdb.download_image("https://image.tmdb.org/t/p/x.jpg", dest)
         self.assertEqual(str(ctx.exception), "TMDB is busy")
 
     def test_other_5xx_after_retries_raises_status(self):
         dest = self._dest()
-        with mock.patch("core.tmdb._fetch",
+        with mock.patch("mak_attatch.core.tmdb._fetch",
                         side_effect=[_http_error(500)] * 3), \
-             mock.patch("core.tmdb._validate_url"), \
-             mock.patch("core.tmdb.time.sleep"):
+             mock.patch("mak_attatch.core.tmdb._validate_url"), \
+             mock.patch("mak_attatch.core.tmdb.time.sleep"):
             with self.assertRaises(tmdb.TMDBError) as ctx:
                 tmdb.download_image("https://image.tmdb.org/t/p/x.jpg", dest)
         self.assertEqual(str(ctx.exception), "TMDB returned HTTP 500")
@@ -145,8 +145,8 @@ class DownloadImageTest(unittest.TestCase):
         import os
         dest = self._dest()
         resp = self._resp(content_type="image/jpeg", payload=b"MZ\x90\x00")
-        with mock.patch("core.tmdb._fetch", return_value=resp), \
-             mock.patch("core.tmdb._validate_url"):
+        with mock.patch("mak_attatch.core.tmdb._fetch", return_value=resp), \
+             mock.patch("mak_attatch.core.tmdb._validate_url"):
             with self.assertRaises(tmdb.TMDBError):
                 tmdb.download_image("https://image.tmdb.org/t/p/x.jpg", dest)
         self.assertFalse(os.path.exists(dest))
@@ -158,9 +158,9 @@ class FindAttachedPicTest(unittest.TestCase):
 
     def test_invalid_path_returns_none_and_warns(self):
         stderr = StringIO()
-        with mock.patch("core.attacher._validate_path",
+        with mock.patch("mak_attatch.core.attacher._validate_path",
                         side_effect=ValueError("Path traversal detected: ../x")), \
-             mock.patch("core.attacher.subprocess.run") as run, \
+             mock.patch("mak_attatch.core.attacher.subprocess.run") as run, \
              mock.patch("sys.stderr", stderr):
             result = attacher._find_attached_pic("../x")
         self.assertIsNone(result)
@@ -179,13 +179,13 @@ class ErrorCapTest(unittest.TestCase):
             "match": {"id": 1, "media_type": "movie", "title": "Boom Town", "year": "2020"},
         }]
 
-        with mock.patch("core.autoattach.tmdb.get_posters",
+        with mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": "https://image.tmdb.org/t/p/x.jpg"}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach",
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach",
                         side_effect=RuntimeError("boom")), \
-             mock.patch("core.autoattach.scanner.has_poster", return_value=False), \
-             mock.patch("core.autoattach.time.sleep"):
+             mock.patch("mak_attatch.core.autoattach.scanner.has_poster", return_value=False), \
+             mock.patch("mak_attatch.core.autoattach.time.sleep"):
             summary = autoattach.attach_groups(resolved)
 
         self.assertEqual(summary["fail"], 25)

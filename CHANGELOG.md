@@ -1,5 +1,86 @@
 # Changelog
 
+## Unreleased
+
+### Changed — packaging (read before upgrading)
+
+- **All code now lives in the `mak_attatch` package.** pip used to install generic top-level modules (`config`, `cli`, `main`, `core`, `ui`), which could overwrite or shadow other packages. The commands are unchanged: `mak-attatch`, `mak-attatch-cli`, and the new **`mak-attatch-tui`** entry point. `python main.py` / `cli.py` / `poster-tui` still work from a checkout. A plain `pip install` without the `[gui]`/`[tui]` extras now prints an install hint instead of crashing.
+- **Scans keep existing posters by default** (`--no-skip-existing` in the CLI, or the setting in the GUI/TUI, replaces them). A saved config that sets `scan_skip_existing` keeps its value.
+- `setup.sh` installs only the required tools. The TUI extras (yazi, chafa) are opt-in with `--with-tui`, so GUI/CLI users no longer get a third-party apt repository. Adding the yazi repository now checks the keyring download and runs `apt-get update`.
+- **Windows support removed:** `setup.ps1`, the Windows CI job and the Windows PATH workaround are gone. mak-attatch targets Linux (and macOS via `setup.sh`).
+- `convert.sh` is now an interactive wrapper around `mak-attatch-cli`. Removing a poster no longer creates an MKV copy, and upper-case extensions work.
+- Makefile and PKGBUILD: square 256×256 icon in the hicolor theme, `arch=any`, LICENSE installed, bytecode precompiled, a `check()` that runs the tests, and quoted paths.
+- CI: read-only token, actions pinned by commit, pinned requirements tested, a wheel build/install smoke test, shellcheck, and bandit over the whole package.
+- SECURITY.md links to GitHub private vulnerability reporting.
+
+### Fixed — matching
+
+- **Batch scans no longer attach an unrelated title's poster.** A TMDB result is used only when its title (or original title) actually resembles the file's title; otherwise the group shows as unmatched for review, with the closest candidate named. The same applies to per-file auto lookups in the CLI and to Scrape.
+- Extras are skipped: `Featurettes`, `Behind The Scenes`, `Deleted Scenes`, `Interviews`, `Trailers`, `Sample(s)`, `Extras` and `Bonus` folders, plus `-trailer`/`-sample`-style files.
+- `Show/Season 1/S01E01 - Pilot.mkv` groups under the show folder instead of becoming a show called "Pilot". `Specials`/`Downloads` folders are no longer taken as show names, and folder names keep their dots (`The.Matrix.1999`).
+- CLI: an unmatched file in a multi-file `attach` is reported and skipped instead of aborting the batch. When nothing matches, `scan` says why (e.g. a rejected API key). An API delay of 0 is respected.
+- Cancelling an auto-attach stops the whole run, not just the current group.
+- `check_tools()` also requires `ffprobe` and `mkvmerge`, which were already used.
+
+### Fixed — robustness
+
+- MP4 rewrites keep the "fast start" layout (index before media), so web/DLNA progressive playback keeps working.
+- Read-only files are refused instead of being silently replaced. Remuxing a symlinked library entry puts the MKV next to the link, not next to its target.
+- Control characters in TMDB text no longer break mkvpropedit's tags file or ffmpeg's arguments.
+- "Already has a poster" means a `cover.*` attachment, matching what attach/remove manage. mkvmerge warnings no longer count as "no poster".
+- TMDB: posters without dimensions and crew without names no longer crash a batch. A rejected or oversized download leaves no partial file. "Wonder Woman 1984"-style titles are retried without treating the number as a year.
+- Config: an unreadable `config.json` is moved aside as `config.json.bad-<timestamp>` instead of being overwritten (which lost the API key). `"false"`/`"0"` strings read as false.
+- `--dry-run` reports missing or unsupported files instead of promising success.
+- Multi-episode files (`S01E01E02`) no longer crash the parser.
+- After an auto-attach that remuxed files, both UIs list the new `.mkv` paths.
+
+### Fixed — GUI and TUI responsiveness and correctness
+
+- Poster check marks are computed in the background instead of freezing the file list.
+- Thumbnails load on a shared pool of 6 threads (was one thread per poster, often 100–300 at once). Previews are size-limited and closing a preview or poster dialog no longer waits for the download.
+- Clicking search results quickly can no longer show one title's posters while another is selected. A newer search supersedes an older one.
+- Loading a new set of files forgets the previous title's poster and metadata.
+- TUI: names and titles that look like markup (`[SubsPlease] …`) are shown literally and can no longer crash the file list or the scan review. Leaving yazi open no longer kills it after 5 minutes, and non-UTF-8 file names are accepted.
+- An API key from `MAK_ATTATCH_TMDB_API_KEY` is no longer written to disk by the settings dialogs.
+- GUI: a portal file dialog that never answered no longer blocks every Browse button. Status text is shown as plain text, never as HTML.
+
+### Fixed — hardlinks, cancel and close
+
+- **Hardlinked MKVs** (torrent client + media manager setups) are edited as a private copy and swapped in, so the seeding file is never modified.
+- **GUI:** a Cancel button (and Esc) stops the running batch after the current file. Closing the window during an operation asks first, then cancels and finishes the current file, instead of freezing until the whole batch is done.
+
+### Fixed — data safety
+
+- **TUI deleted the user's own image**: picking a poster with "Local Image" previewed the file and then deleted it. Only temp files downloaded for a preview are removed now.
+- **MP4/MOV metadata wiped stream metadata**: writing or removing metadata used `-map_metadata -1`, which also cleared per-stream and per-chapter metadata. Audio and subtitle languages became `und`, and track names and chapter titles were lost. Only global tags are reset now (`-map_metadata:g -1`).
+- **MOV/M4V metadata editing failed**: writing or removing metadata on `.mov` and `.m4v` used ffmpeg's MOV/iPod muxers, which fail or drop the cover. All MP4-family rewrites now use the MP4 muxer and keep the source brand.
+- **TV metadata overwrote episode titles**: show-level TMDB details replaced every episode's own title and synopsis. Series data is now written at show level: Matroska collection tags (`TargetTypeValue 70`) and the MP4 `show` atom. The episode's title, date and description are left alone.
+- **Rewrites are verified before replacing the original**: MP4/MOV/M4V rewrites check stream count and duration, fsync the new file, use hidden non-video temp names, scale their timeout with file size, and check free space first. A truncated ffmpeg output can no longer replace the original.
+- **mkvpropedit**: exit code 1 (warnings, changes written) is no longer reported as a failure. Errors now show mkvpropedit's own message. The kill timeout for in-place edits is 600 s.
+- **`--to-mkv` rescans** no longer fully rewrite the MP4 before discovering the `.mkv` already exists.
+- **Remove metadata (MKV)** keeps mkvmerge's per-track statistics tags.
+
+### Fixed — safety in the GUI and TUI
+
+- **GUI Ctrl+A attached the poster to every file**: Attach is now Ctrl+Return. Ctrl+O and Ctrl+F work again; they were registered twice and Qt ignored both.
+- **One write operation at a time** in both GUI and TUI. Two batches can no longer edit the same files concurrently.
+- **Actions on all files need explicit confirmation** when nothing is selected. The TUI now confirms Remove, Rm Meta and Scrape.
+- **GUI selection survives list refreshes**: a background job finishing no longer turns "attach to 3 selected files" into "attach to all".
+- **GUI poster removal runs in the background** instead of freezing the window.
+- **GUI no longer aborts on unexpected errors**: an invalid API key or a slot exception shows a dialog instead.
+- **TUI batch Scrape** resolves each file itself instead of writing one title's metadata to every file. After Convert, the selection follows the new `.mkv` files.
+
+### Security
+
+- **TMDB API key no longer appears in error messages**: network and HTTP errors used to include the request URL, which contains `?api_key=`. The CLI, GUI and TUI showed it verbatim.
+
+### Other
+
+- File names containing `...` (`Tick, Tick... Boom! (2021).mkv`) or starting with `-` are no longer rejected. Every tool receives an absolute path.
+- `.m4v` is tagged in place like MP4 instead of being remuxed to MKV.
+- TMDB: HTTP 429 is retried (honouring `Retry-After`, capped at 10 s), and same-host redirects keep the v3 key.
+- Tests: a misplaced skip decorator hid about 60 tests on machines without ffmpeg or mkvtoolnix. 66 new regression tests; full suite 215 passed.
+
 ## v1.3.5 — 2026-10-20
 
 ### Fixed

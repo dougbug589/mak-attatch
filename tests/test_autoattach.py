@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from core import autoattach, scanner, tmdb
+from mak_attatch.core import autoattach, scanner, tmdb
 
 
 def _group(kind, title, files, season=None, year=""):
@@ -15,7 +15,7 @@ POSTER_URL = "https://image.tmdb.org/t/p/original/x.jpg"
 
 
 class ResolveGroupsTest(unittest.TestCase):
-    @mock.patch("core.autoattach.tmdb.search")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search")
     def test_resolve_year_match_wins(self, search):
         groups = [_group("show", "Series", ["/x/Series S01E01.mkv"],
                          season=1, year="2022")]
@@ -28,7 +28,7 @@ class ResolveGroupsTest(unittest.TestCase):
         self.assertEqual(resolved[0]["match"]["id"], 1)
         search.assert_called_once_with("Series (2022)", "tv")
 
-    @mock.patch("core.autoattach.tmdb.search")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search")
     def test_no_match(self, search):
         search.return_value = []
         groups = [_group("movie", "Nope", ["/x/nope.mkv"], year="1999")]
@@ -36,7 +36,7 @@ class ResolveGroupsTest(unittest.TestCase):
         self.assertEqual(resolved[0]["status"], "no-match")
         self.assertIsNone(resolved[0]["match"])
 
-    @mock.patch("core.autoattach.tmdb.search",
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search",
                 side_effect=tmdb.TMDBError("boom"))
     def test_search_error_is_recorded(self, search):
         groups = [_group("movie", "Boom", ["/x/b.mkv"])]
@@ -44,14 +44,14 @@ class ResolveGroupsTest(unittest.TestCase):
         self.assertEqual(resolved[0]["status"], "error")
         self.assertIn("boom", resolved[0]["error"])
 
-    @mock.patch("core.autoattach.tmdb.search")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search")
     def test_unexpected_error_propagates(self, search):
         search.side_effect = RuntimeError("boom")
         with self.assertRaises(RuntimeError):
             autoattach.resolve_groups([_group("movie", "Boom", ["/x/b.mkv"])],
                                       api_delay=0)
 
-    @mock.patch("core.autoattach.tmdb.search")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search")
     def test_scoped_media_type(self, search):
         search.return_value = []
         autoattach.resolve_groups(
@@ -63,7 +63,7 @@ class ResolveGroupsTest(unittest.TestCase):
         self.assertIn(("Show", "tv"), calls)
         self.assertIn(("Film", "movie"), calls)
 
-    @mock.patch("core.autoattach.tmdb.search")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.search")
     def test_progress_receives_index_total_group(self, search):
         search.return_value = []
         seen = []
@@ -90,10 +90,10 @@ class AttachGroupsTest(unittest.TestCase):
             "error": "",
         }]
 
-    @mock.patch("core.autoattach.scanner.has_poster", return_value=False)
-    @mock.patch("core.autoattach.attacher.full_attach")
-    @mock.patch("core.autoattach.tmdb.download_image")
-    @mock.patch("core.autoattach.tmdb.get_posters",
+    @mock.patch("mak_attatch.core.autoattach.scanner.has_poster", return_value=False)
+    @mock.patch("mak_attatch.core.autoattach.attacher.full_attach")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.download_image")
+    @mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                 return_value=[{"url": POSTER_URL}])
     def test_attach_ok(self, get_posters, download_image, full_attach, has_poster):
         summary = autoattach.attach_groups(self._resolved(2), api_delay=0)
@@ -104,26 +104,26 @@ class AttachGroupsTest(unittest.TestCase):
         self.assertEqual(download_image.call_count, 1)
 
     def test_skips_existing_posters(self):
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=True), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach") as full:
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach") as full:
             summary = autoattach.attach_groups(self._resolved(2), api_delay=0)
         self.assertEqual(summary["skipped"], 2)
         self.assertEqual(summary["ok"], 0)
         full.assert_not_called()
 
     def test_scrapes_metadata_once_per_group(self):
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.tmdb.get_details",
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_details",
                         return_value={"title": "Series"}) as details, \
-             mock.patch("core.autoattach.attacher.full_attach") as full:
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach") as full:
             summary = autoattach.attach_groups(
                 self._resolved(2), scrape_metadata=True, api_delay=0)
         self.assertEqual(summary["ok"], 2)
@@ -132,12 +132,12 @@ class AttachGroupsTest(unittest.TestCase):
             self.assertEqual(call.kwargs["metadata"], {"title": "Series"})
 
     def test_to_mkv_flag_passed_to_full_attach(self):
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach") as full:
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach") as full:
             summary = autoattach.attach_groups(self._resolved(1), api_delay=0,
                                                to_mkv=True)
         self.assertEqual(summary["ok"], 1)
@@ -145,12 +145,12 @@ class AttachGroupsTest(unittest.TestCase):
             self.assertTrue(call.kwargs["to_mkv"])
 
     def test_to_mkv_off_by_default(self):
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach") as full:
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach") as full:
             autoattach.attach_groups(self._resolved(1), api_delay=0)
         for call in full.call_args_list:
             self.assertFalse(call.kwargs.get("to_mkv", False))
@@ -159,12 +159,12 @@ class AttachGroupsTest(unittest.TestCase):
         def boom(*_a, **_k):
             raise RuntimeError("bad file")
 
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach",
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach",
                         side_effect=boom) as full:
             summary = autoattach.attach_groups(self._resolved(2), api_delay=0)
         self.assertEqual(summary["ok"], 0)
@@ -172,7 +172,7 @@ class AttachGroupsTest(unittest.TestCase):
         self.assertEqual(full.call_count, 2)
 
     def test_unmatched_groups_are_skipped(self):
-        with mock.patch("core.autoattach.attacher.full_attach") as full:
+        with mock.patch("mak_attatch.core.autoattach.attacher.full_attach") as full:
             summary = autoattach.attach_groups(
                 [{"group": _group("movie", "X", ["/x/a.mkv"]),
                   "match": None, "status": "no-match", "error": ""}],
@@ -185,23 +185,23 @@ class AttachGroupsTest(unittest.TestCase):
         resolved = self._resolved(1)
         resolved[0]["poster"] = {"url": "file:///custom.jpg",
                                  "width": 100, "height": 100}
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": "file:///default.jpg"}]), \
-             mock.patch("core.autoattach.tmdb.download_image") as dl, \
-             mock.patch("core.autoattach.attacher.full_attach"):
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image") as dl, \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach"):
             autoattach.attach_groups(resolved, api_delay=0)
         self.assertEqual(dl.call_args.args[0], "file:///custom.jpg")
 
     def test_progress_receives_done_total_path_status(self):
         seen = []
-        with mock.patch("core.autoattach.scanner.has_poster",
+        with mock.patch("mak_attatch.core.autoattach.scanner.has_poster",
                         return_value=False), \
-             mock.patch("core.autoattach.tmdb.get_posters",
+             mock.patch("mak_attatch.core.autoattach.tmdb.get_posters",
                         return_value=[{"url": POSTER_URL}]), \
-             mock.patch("core.autoattach.tmdb.download_image"), \
-             mock.patch("core.autoattach.attacher.full_attach"):
+             mock.patch("mak_attatch.core.autoattach.tmdb.download_image"), \
+             mock.patch("mak_attatch.core.autoattach.attacher.full_attach"):
             autoattach.attach_groups(
                 self._resolved(2), api_delay=0,
                 progress=lambda *args: seen.append(args),

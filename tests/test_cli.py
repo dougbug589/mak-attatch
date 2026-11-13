@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-import cli
-from core import parser as core_parser
+from mak_attatch import cli
+from mak_attatch.core import parser as core_parser
 
 
 def _run(argv):
@@ -32,15 +32,15 @@ class VersionAndUsageTest(unittest.TestCase):
 
 class AttachTest(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch("cli.config")
+        patcher = mock.patch("mak_attatch.cli.config")
         self.config = patcher.start()
         self.config.get.return_value = "test-key"
         self.addCleanup(patcher.stop)
-        tools = mock.patch("cli.attacher.check_tools", return_value=[])
+        tools = mock.patch("mak_attatch.cli.attacher.check_tools", return_value=[])
         tools.start()
         self.addCleanup(tools.stop)
 
-    @mock.patch("cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
     def test_local_poster_attaches_directly(self, full_attach):
         full_attach.return_value = "movie.mkv"
         code = _run(["attach", "-f", "movie.mkv", "-p", "poster.jpg"])
@@ -49,10 +49,10 @@ class AttachTest(unittest.TestCase):
             "movie.mkv", "poster.jpg", metadata=None, to_mkv=False
         )
 
-    @mock.patch("cli.attacher.full_attach")
-    @mock.patch("cli.tmdb.download_image")
-    @mock.patch("cli.tmdb.get_posters")
-    @mock.patch("cli.tmdb.search")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.tmdb.download_image")
+    @mock.patch("mak_attatch.cli.tmdb.get_posters")
+    @mock.patch("mak_attatch.cli.tmdb.search")
     def test_search_downloads_and_cleans_temp_poster(self, search, get_posters,
                                                      download_image, full_attach):
         search.return_value = [
@@ -75,11 +75,11 @@ class AttachTest(unittest.TestCase):
         )
         self.assertFalse(os.path.exists(poster_dest))
 
-    @mock.patch("cli.attacher.full_attach")
-    @mock.patch("cli.tmdb.download_image")
-    @mock.patch("cli.tmdb.get_details")
-    @mock.patch("cli.tmdb.get_posters")
-    @mock.patch("cli.tmdb.search")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.tmdb.download_image")
+    @mock.patch("mak_attatch.cli.tmdb.get_details")
+    @mock.patch("mak_attatch.cli.tmdb.get_posters")
+    @mock.patch("mak_attatch.cli.tmdb.search")
     def test_embed_metadata_scrapes_details(self, search, get_posters, get_details,
                                             download_image, full_attach):
         search.return_value = [
@@ -97,10 +97,10 @@ class AttachTest(unittest.TestCase):
             metadata={"title": "Boom"}, to_mkv=False,
         )
 
-    @mock.patch("cli.attacher.full_attach")
-    @mock.patch("cli.tmdb.download_image")
-    @mock.patch("cli.tmdb.get_posters")
-    @mock.patch("cli.tmdb.search")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.tmdb.download_image")
+    @mock.patch("mak_attatch.cli.tmdb.get_posters")
+    @mock.patch("mak_attatch.cli.tmdb.search")
     def test_filename_derived_query_when_no_source(self, search, get_posters,
                                                    download_image, full_attach):
         with mock.patch.object(core_parser, "parse_filename",
@@ -118,13 +118,13 @@ class AttachTest(unittest.TestCase):
         self.assertEqual(code, 0)
         search.assert_called_once_with("Blade (1998)", "multi")
 
-    @mock.patch("cli.tmdb.search", return_value=[])
+    @mock.patch("mak_attatch.cli.tmdb.search", return_value=[])
     def test_no_match_exits_nonzero(self, search):
         code = _run(["attach", "-f", "movie.mkv", "-s", "Nope"])
         self.assertEqual(code, 1)
 
-    @mock.patch("cli.tmdb.search")
-    @mock.patch("cli.tmdb.get_posters", return_value=[])
+    @mock.patch("mak_attatch.cli.tmdb.search")
+    @mock.patch("mak_attatch.cli.tmdb.get_posters", return_value=[])
     def test_no_posters_exits_nonzero(self, get_posters, search):
         search.return_value = [
             {"id": 1, "title": "Boom", "year": "", "media_type": "movie"},
@@ -133,12 +133,12 @@ class AttachTest(unittest.TestCase):
 
     def test_missing_api_key_fails_before_work(self):
         self.config.get.return_value = ""
-        with mock.patch("cli.attacher.check_tools") as check_tools:
+        with mock.patch("mak_attatch.cli.attacher.check_tools") as check_tools:
             code = _run(["attach", "-f", "m.mkv", "-s", "Boom"])
         self.assertEqual(code, 1)
         check_tools.assert_not_called()
 
-    @mock.patch("cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
     def test_local_poster_needs_no_api_key(self, full_attach):
         self.config.get.return_value = ""
         full_attach.return_value = "movie.mkv"
@@ -148,16 +148,29 @@ class AttachTest(unittest.TestCase):
             "movie.mkv", "poster.jpg", metadata=None, to_mkv=False
         )
 
-    @mock.patch("cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
     def test_attach_dry_run_does_not_touch_files(self, full_attach):
-        code = _run(["attach", "-f", "movie.mkv", "-p", "poster.jpg", "--dry-run"])
+        d = tempfile.mkdtemp(prefix="mak-cli-dry-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        movie, poster = os.path.join(d, "movie.mkv"), os.path.join(d, "poster.jpg")
+        for f in (movie, poster):
+            open(f, "wb").close()
+        code = _run(["attach", "-f", movie, "-p", poster, "--dry-run"])
         self.assertEqual(code, 0)
         full_attach.assert_not_called()
 
-    @mock.patch("cli.attacher.full_attach")
-    @mock.patch("cli.tmdb.download_image")
-    @mock.patch("cli.tmdb.get_posters")
-    @mock.patch("cli.tmdb.search")
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
+    def test_attach_dry_run_reports_missing_inputs(self, full_attach):
+        # A dry run must not promise success for files the real run rejects.
+        code = _run(["attach", "-f", "/nonexistent/movie.mkv", "-p", "/nonexistent/p.jpg",
+                     "--dry-run"])
+        self.assertEqual(code, 1)
+        full_attach.assert_not_called()
+
+    @mock.patch("mak_attatch.cli.attacher.full_attach")
+    @mock.patch("mak_attatch.cli.tmdb.download_image")
+    @mock.patch("mak_attatch.cli.tmdb.get_posters")
+    @mock.patch("mak_attatch.cli.tmdb.search")
     def test_batch_without_source_resolves_each_file(self, search, get_posters,
                                                      download_image, full_attach):
         search.side_effect = lambda q, media_type: [
@@ -170,7 +183,7 @@ class AttachTest(unittest.TestCase):
         self.assertEqual(search.call_count, 2)
         self.assertEqual(full_attach.call_count, 2)
 
-    @mock.patch("cli.attacher.check_tools", return_value=["ffmpeg"])
+    @mock.patch("mak_attatch.cli.attacher.check_tools", return_value=["ffmpeg"])
     def test_missing_tools_fails(self, check_tools):
         code = _run(["attach", "-f", "m.mkv", "-p", "p.jpg"])
         self.assertEqual(code, 1)
@@ -179,17 +192,17 @@ class AttachTest(unittest.TestCase):
 
 class RemoveTest(unittest.TestCase):
     def setUp(self):
-        tools = mock.patch("cli.attacher.check_tools", return_value=[])
+        tools = mock.patch("mak_attatch.cli.attacher.check_tools", return_value=[])
         tools.start()
         self.addCleanup(tools.stop)
 
-    @mock.patch("cli.attacher.remove_poster")
+    @mock.patch("mak_attatch.cli.attacher.remove_poster")
     def test_default_removes_poster(self, remove_poster):
         self.assertEqual(_run(["remove", "-f", "movie.mkv"]), 0)
         remove_poster.assert_called_once_with("movie.mkv")
 
-    @mock.patch("cli.attacher.remove_poster")
-    @mock.patch("cli.attacher.remove_metadata")
+    @mock.patch("mak_attatch.cli.attacher.remove_poster")
+    @mock.patch("mak_attatch.cli.attacher.remove_metadata")
     def test_metadata_only(self, remove_metadata, remove_poster):
         code = _run(["remove", "-f", "movie.mkv", "--metadata-only"])
         self.assertEqual(code, 0)
@@ -203,11 +216,11 @@ class RemoveTest(unittest.TestCase):
 
 class ScanTest(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch("cli.config")
+        patcher = mock.patch("mak_attatch.cli.config")
         self.config = patcher.start()
         self.config.get.return_value = "test-key"
         self.addCleanup(patcher.stop)
-        tools = mock.patch("cli.attacher.check_tools", return_value=[])
+        tools = mock.patch("mak_attatch.cli.attacher.check_tools", return_value=[])
         tools.start()
         self.addCleanup(tools.stop)
         self._tmpdirs = []
@@ -224,10 +237,10 @@ class ScanTest(unittest.TestCase):
         self._tmpdirs.append(d)
         return d
 
-    @mock.patch("cli.autoattach.attach_groups")
-    @mock.patch("cli.autoattach.resolve_groups")
-    @mock.patch("cli.scanner.classify")
-    @mock.patch("cli.scanner.iter_video_files")
+    @mock.patch("mak_attatch.cli.autoattach.attach_groups")
+    @mock.patch("mak_attatch.cli.autoattach.resolve_groups")
+    @mock.patch("mak_attatch.cli.scanner.classify")
+    @mock.patch("mak_attatch.cli.scanner.iter_video_files")
     def test_scan_resolves_and_attaches(self, iter_files, classify, resolve,
                                         attach):
         iter_files.return_value = ["/v/a.mkv"]
@@ -245,9 +258,9 @@ class ScanTest(unittest.TestCase):
         self.assertTrue(kwargs["skip_existing"])
         self.assertTrue(kwargs["scrape_metadata"])
 
-    @mock.patch("cli.autoattach.resolve_groups")
-    @mock.patch("cli.scanner.classify")
-    @mock.patch("cli.scanner.iter_video_files")
+    @mock.patch("mak_attatch.cli.autoattach.resolve_groups")
+    @mock.patch("mak_attatch.cli.scanner.classify")
+    @mock.patch("mak_attatch.cli.scanner.iter_video_files")
     def test_scan_with_no_matches_exits_nonzero(self, iter_files, classify,
                                                 resolve):
         iter_files.return_value = ["/v/a.mkv"]
@@ -256,14 +269,14 @@ class ScanTest(unittest.TestCase):
                                  "match": None, "error": ""}]
         self.assertEqual(_run(["scan", self._scan_dir()]), 1)
 
-    @mock.patch("cli.scanner.iter_video_files", return_value=[])
+    @mock.patch("mak_attatch.cli.scanner.iter_video_files", return_value=[])
     def test_scan_with_no_videos_is_not_an_error(self, iter_files):
         self.assertEqual(_run(["scan", self._scan_dir()]), 0)
 
     def test_scan_nonexistent_directory(self):
         self.assertEqual(_run(["scan", "/no/such/dir"]), 1)
 
-    @mock.patch("cli.scanner.iter_video_files", return_value=[])
+    @mock.patch("mak_attatch.cli.scanner.iter_video_files", return_value=[])
     def test_scan_expands_tilde(self, iter_files):
         home = tempfile.mkdtemp(prefix="mak-home-")
         self._tmpdirs.append(home)
@@ -280,10 +293,10 @@ class ScanTest(unittest.TestCase):
             os.path.normpath(sub),
         )
 
-    @mock.patch("cli.autoattach.attach_groups")
-    @mock.patch("cli.autoattach.resolve_groups")
-    @mock.patch("cli.scanner.classify")
-    @mock.patch("cli.scanner.iter_video_files")
+    @mock.patch("mak_attatch.cli.autoattach.attach_groups")
+    @mock.patch("mak_attatch.cli.autoattach.resolve_groups")
+    @mock.patch("mak_attatch.cli.scanner.classify")
+    @mock.patch("mak_attatch.cli.scanner.iter_video_files")
     def test_scan_dry_run_does_not_attach(self, iter_files, classify, resolve,
                                           attach):
         iter_files.return_value = ["/v/a.mkv"]

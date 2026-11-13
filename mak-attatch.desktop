@@ -6,3 +6,5 @@ Icon=mak-attatch
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;
+Keywords=poster;cover;artwork;tmdb;mkv;mp4;metadata;
+StartupWMClass=mak-attatch

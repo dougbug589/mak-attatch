@@ -1,11 +1,14 @@
+import difflib
 import os
+import re
 import time
+import unicodedata
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
 
-import config
+from mak_attatch import config
 
 BASE_URL = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p"
@@ -16,7 +19,37 @@ MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 class TMDBError(Exception):
-    pass
+    def __init__(self, message: str = "", status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+
+MAX_RATE_LIMIT_RETRIES = 2
+MAX_RETRY_AFTER = 10  # seconds
+
+_SECRET_RE = re.compile(r"(api_key=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def redact(text: str) -> str:
+    """Remove a v3 API key from text that may contain a request URL."""
+    return _SECRET_RE.sub(r"\1[REDACTED]", str(text))
+
+
+def _http_error_message(status: int) -> str:
+    if status == 401:
+        return "TMDB rejected the API key (HTTP 401)"
+    if status == 404:
+        return "Not found on TMDB (HTTP 404)"
+    if status == 429:
+        return "TMDB rate limit hit (HTTP 429); try again shortly"
+    return f"TMDB returned HTTP {status}"
+
+
+def _retry_after(resp) -> float:
+    try:
+        return min(MAX_RETRY_AFTER, max(0.0, float(resp.headers.get("Retry-After", 1))))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 _session = None
@@ -42,25 +75,47 @@ def _fetch(url: str, stream: bool = False, params: dict = None) -> requests.Resp
         else:
             params["api_key"] = api_key
 
+    # Errors raised from here never carry the request URL: with a v3 key the
+    # URL contains ?api_key=..., and requests puts the URL into both HTTPError
+    # and ConnectionError messages, which the CLI/GUI/TUI display verbatim.
     current = url
-    for _ in range(MAX_REDIRECTS + 1):
+    redirects = 0
+    rate_limited = 0
+    while True:
         _validate_url(current)
-        resp = session.get(current, params=params, stream=stream, timeout=TIMEOUT,
-                           allow_redirects=False, headers=headers)
+        try:
+            resp = session.get(current, params=params, stream=stream, timeout=TIMEOUT,
+                               allow_redirects=False, headers=headers)
+        except requests.RequestException as e:
+            raise TMDBError(f"Could not reach TMDB ({type(e).__name__})") from None
         if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
+            redirects += 1
+            if redirects > MAX_REDIRECTS:
+                resp.close()
+                raise TMDBError("Too many redirects")
             next_url = urljoin(current, resp.headers["Location"])
-            # Authorization header must not travel across hosts; it is safe
-            # to keep it when the redirect stays within the same host.
-            if urlparse(next_url).hostname != urlparse(current).hostname:
+            # Credentials must not travel across hosts; keep them when the
+            # redirect stays on the same host (dropping the v3 key there
+            # would turn a harmless redirect into a 401).
+            same_host = urlparse(next_url).hostname == urlparse(current).hostname
+            if not same_host:
                 headers.pop("Authorization", None)
-            params = {}
+            params = {"api_key": params["api_key"]} if same_host and "api_key" in params else {}
             current = next_url
             resp.close()
             continue
+        if resp.status_code == 429 and rate_limited < MAX_RATE_LIMIT_RETRIES:
+            rate_limited += 1
+            wait = _retry_after(resp)
+            resp.close()
+            time.sleep(wait)
+            continue
         _validate_url(resp.url)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            status = resp.status_code
+            resp.close()
+            raise TMDBError(_http_error_message(status), status=status)
         return resp
-    raise TMDBError("Too many redirects")
 
 
 def _validate_url(url: str):
@@ -107,6 +162,7 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
     if media_type not in ("multi", "movie", "tv"):
         raise TMDBError("Invalid media type")
 
+    original_query = query.strip()
     query, year = _split_query_year(query)
     if not query:
         raise TMDBError("Empty search query")
@@ -119,6 +175,12 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
             params["first_air_date_year"] = year
     resp = _fetch(f"{BASE_URL}/search/{media_type}", params=params)
     results = resp.json().get("results", [])
+    if not results and year and not original_query.endswith(")"):
+        # A bare trailing number may be part of the title ("Wonder Woman
+        # 1984", "Space 1999"): retry it as plain text before giving up.
+        query, year = original_query, ""
+        resp = _fetch(f"{BASE_URL}/search/{media_type}", params={"query": query})
+        results = resp.json().get("results", [])
 
     filtered = []
     for r in results:
@@ -128,6 +190,7 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
         filtered.append({
             "id": r["id"],
             "title": r.get("title") or r.get("name"),
+            "original_title": r.get("original_title") or r.get("original_name") or "",
             "year": (r.get("release_date") or r.get("first_air_date") or "")[:4],
             "media_type": mt,
             "overview": r.get("overview", ""),
@@ -144,6 +207,60 @@ def search(query: str, media_type: str = "multi") -> list[dict]:
     return filtered
 
 
+# A result whose title is less similar than this to the parsed filename title
+# is treated as "no match" (left for the user to review) instead of attaching
+# some unrelated title's poster. TMDB's first result is a popularity guess,
+# not a confirmation: "Sample", "trailer" or "Birthday Party 2019" all return
+# *something*.
+MIN_TITLE_SIMILARITY = 0.75
+
+_LEADING_ARTICLE_RE = re.compile(r"^(?:the|a|an)\s+")
+
+
+def normalize_title(title: str) -> str:
+    text = unicodedata.normalize("NFKD", str(title or ""))
+    text = text.encode("ascii", "ignore").decode().lower().replace("&", " and ")
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    return _LEADING_ARTICLE_RE.sub("", text)
+
+
+def title_similarity(wanted: str, candidate: str) -> float:
+    a, b = normalize_title(wanted), normalize_title(candidate)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    score = difflib.SequenceMatcher(None, a, b).ratio()
+    ta, tb = a.split(), b.split()
+    n = min(len(ta), len(tb))
+    if n and ta[:n] == tb[:n]:
+        # "Star Wars" vs "Star Wars: A New Hope", "Show" vs "Show (US)".
+        score = max(score, 0.8)
+    return score
+
+
+def best_match(results: list[dict], title: str, year: str = "") -> dict | None:
+    """Pick the result that plausibly *is* this title, or None.
+
+    Among results similar enough to ``title`` (by title or original title),
+    prefer one whose year matches, then the most similar; ties keep TMDB's
+    order.
+    """
+    scored = []
+    for index, r in enumerate(results):
+        score = max(title_similarity(title, r.get("title") or ""),
+                    title_similarity(title, r.get("original_title") or ""))
+        if score >= MIN_TITLE_SIMILARITY:
+            scored.append((score, index, r))
+    if not scored:
+        return None
+    if year:
+        same_year = [s for s in scored if str(s[2].get("year") or "").startswith(str(year))]
+        if same_year:
+            scored = same_year
+    return max(scored, key=lambda s: (s[0], -s[1]))[2]
+
+
 def get_posters(media_id: int, media_type: str) -> list[dict]:
     if not config.get("tmdb_api_key"):
         raise TMDBError("No API key set")
@@ -155,6 +272,8 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
 
     posters = []
     for p in resp.json().get("posters", []):
+        if not isinstance(p, dict):
+            continue
         file_path = p.get("file_path", "")
         if not file_path or ".." in file_path:
             continue
@@ -164,8 +283,8 @@ def get_posters(media_id: int, media_type: str) -> list[dict]:
         _validate_url(thumb_url)
         posters.append({
             "file_path": file_path,
-            "width": p["width"],
-            "height": p["height"],
+            "width": int(p.get("width") or 0),
+            "height": int(p.get("height") or 0),
             "lang": p.get("iso_639_1", ""),
             "url": url,
             "thumb_url": thumb_url,
@@ -199,9 +318,12 @@ def get_details(media_id: int, media_type: str) -> dict:
     if media_type == "movie":
         crew = credits.get("crew", [])
         metadata["runtime"] = details.get("runtime")
-        metadata["directors"] = sorted({c.get("name") for c in crew if c.get("job") == "Director"})
+        metadata["directors"] = sorted(
+            {c.get("name") for c in crew if c.get("job") == "Director" and c.get("name")}
+        )
         metadata["writers"] = sorted(
-            {c.get("name") for c in crew if c.get("job") in ("Writer", "Screenplay")}
+            {c.get("name") for c in crew
+             if c.get("job") in ("Writer", "Screenplay") and c.get("name")}
         )
     else:
         metadata["runtime"] = None
@@ -229,14 +351,19 @@ def details_for_path(path: str, current_media: dict = None) -> dict:
     """
     if current_media:
         return get_details(current_media["id"], current_media["media_type"])
-    from core import parser
+    from mak_attatch.core import parser
 
     parsed = parser.parse_filename(path)
     results = search(parser.build_search_query(parsed))
     if not results:
         raise TMDBError(f"No TMDB match for {Path(path).name}")
-    top = results[0]
-    return get_details(top["id"], top["media_type"])
+    match = best_match(results, parsed["title"], parsed.get("year", ""))
+    if match is None:
+        raise TMDBError(
+            f"No confident TMDB match for {Path(path).name} "
+            f"(closest: {results[0].get('title')!r})"
+        )
+    return get_details(match["id"], match["media_type"])
 
 
 VALID_IMAGE_TYPES = {
@@ -273,35 +400,48 @@ def download_image(url: str, dest: str):
         try:
             resp = _fetch(url, stream=True)
             break
-        except requests.HTTPError as e:
-            status = e.response.status_code if e.response is not None else None
+        except (TMDBError, requests.HTTPError) as e:
+            if isinstance(e, TMDBError):
+                status = e.status
+            else:
+                status = e.response.status_code if e.response is not None else None
             if status and 500 <= status < 600 and attempt < 2:
                 time.sleep(2 ** attempt)
                 continue
             if status == 503:
-                raise TMDBError("TMDB is busy")
+                raise TMDBError("TMDB is busy", status=503) from None
             if status:
-                raise TMDBError(f"TMDB returned HTTP {status}")
+                raise TMDBError(f"TMDB returned HTTP {status}", status=status) from None
             raise
 
-    content_type = resp.headers.get("content-type", "").lower().split(";")[0].strip()
-    if content_type not in VALID_IMAGE_TYPES:
-        raise TMDBError(f"Unexpected content type: {content_type}")
+    try:
+        content_type = resp.headers.get("content-type", "").lower().split(";")[0].strip()
+        if content_type not in VALID_IMAGE_TYPES:
+            raise TMDBError(f"Unexpected content type: {content_type}")
 
-    content_length = int(resp.headers.get("content-length", 0))
-    if content_length > MAX_IMAGE_SIZE:
-        raise TMDBError("Image too large")
+        content_length = int(resp.headers.get("content-length", 0) or 0)
+        if content_length > MAX_IMAGE_SIZE:
+            raise TMDBError("Image too large")
 
-    downloaded = 0
-    with open(dest, "wb") as f:
-        for chunk in resp.iter_content(8192):
-            downloaded += len(chunk)
-            if downloaded > MAX_IMAGE_SIZE:
-                f.close()
-                raise TMDBError("Image exceeded size limit during download")
-            f.write(chunk)
+        downloaded = 0
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                downloaded += len(chunk)
+                if downloaded > MAX_IMAGE_SIZE:
+                    raise TMDBError("Image exceeded size limit during download")
+                f.write(chunk)
 
-    mime = _sniff_image_mime(dest)
-    if mime not in VALID_IMAGE_TYPES:
-        os.unlink(dest)
-        raise TMDBError("Downloaded content is not a valid image")
+        mime = _sniff_image_mime(dest)
+        if mime not in VALID_IMAGE_TYPES:
+            raise TMDBError("Downloaded content is not a valid image")
+    except BaseException:
+        # Callers own dest, but a half-written image must never be attached.
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
+    finally:
+        close = getattr(resp, "close", None)
+        if close:
+            close()
